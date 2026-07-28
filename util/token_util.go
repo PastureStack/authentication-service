@@ -2,21 +2,21 @@ package util
 
 import (
 	"crypto/rsa"
-	log "github.com/Sirupsen/logrus"
-	jwt "github.com/dgrijalva/jwt-go"
 	"io/ioutil"
+
+	jwt "github.com/golang-jwt/jwt/v5"
+	log "github.com/sirupsen/logrus"
 )
 
-//CreateTokenWithPayload returns signed jwt token
+// CreateTokenWithPayload returns signed jwt token
 func CreateTokenWithPayload(payload map[string]interface{}, privateKey *rsa.PrivateKey) (string, error) {
-	token := jwt.New(jwt.GetSigningMethod("RS256"))
 	claims := make(jwt.MapClaims)
 
 	for key, value := range payload {
 		claims[key] = value
 	}
 
-	token.Claims = claims
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := token.SignedString(privateKey)
 	if err != nil {
 		log.Errorf("Failed to sign the token using the private key, error %v", err)
@@ -25,7 +25,7 @@ func CreateTokenWithPayload(payload map[string]interface{}, privateKey *rsa.Priv
 	return signed, nil
 }
 
-//ParsePrivateKey Parses privateKey file
+// ParsePrivateKey Parses privateKey file
 func ParsePrivateKey(filePath string) *rsa.PrivateKey {
 	keyBytes, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -34,12 +34,12 @@ func ParsePrivateKey(filePath string) *rsa.PrivateKey {
 	return privateKeyDecode(keyBytes)
 }
 
-//ParsePrivateKeyContents Parses rsa Key contents
+// ParsePrivateKeyContents Parses rsa Key contents
 func ParsePrivateKeyContents(keyFileContents string) *rsa.PrivateKey {
 	return privateKeyDecode([]byte(keyFileContents))
 }
 
-//privateKeyDecode Parses rsa key bytes
+// privateKeyDecode Parses rsa key bytes
 func privateKeyDecode(keyBytes []byte) *rsa.PrivateKey {
 	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(keyBytes)
 	if err != nil {
@@ -48,7 +48,7 @@ func privateKeyDecode(keyBytes []byte) *rsa.PrivateKey {
 	return privateKey
 }
 
-//ParsePublicKey Parses publicKey file
+// ParsePublicKey Parses publicKey file
 func ParsePublicKey(filePath string) *rsa.PublicKey {
 	keyBytes, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -57,12 +57,12 @@ func ParsePublicKey(filePath string) *rsa.PublicKey {
 	return publicKeyDecode(keyBytes)
 }
 
-//ParsePublicKeyContents Parses rsa Key contents
+// ParsePublicKeyContents Parses rsa Key contents
 func ParsePublicKeyContents(keyFileContents string) *rsa.PublicKey {
 	return publicKeyDecode([]byte(keyFileContents))
 }
 
-//publicKeyDecode Parses rsa key bytes
+// publicKeyDecode Parses rsa key bytes
 func publicKeyDecode(keyBytes []byte) *rsa.PublicKey {
 	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(keyBytes)
 	if err != nil {

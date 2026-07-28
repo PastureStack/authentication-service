@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/rancher/rancher-auth-service/model"
+	"github.com/PastureStack/authentication-service/model"
+	log "github.com/sirupsen/logrus"
 	"github.com/tomnomnom/linkheader"
 )
 
@@ -22,7 +22,7 @@ const (
 	githubDefaultHostName = "https://github.com"
 )
 
-//GClient implements a httpclient for github
+// GClient implements a httpclient for github
 type GClient struct {
 	httpClient *http.Client
 	config     *model.GithubConfig
@@ -336,7 +336,7 @@ func (g *GithubClient) searchGithub(githubAccessToken string, url string) []map[
 
 */
 
-//URLEncoded encodes the string
+// URLEncoded encodes the string
 func URLEncoded(str string) string {
 	u, err := url.Parse(str)
 	if err != nil {

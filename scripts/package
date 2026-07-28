@@ -1,12 +1,32 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-cd $(dirname $0)/..
+source "$(dirname "$0")/version"
+cd "$(dirname "$0")/.."
 
-if [ ! -e bin/rancher-auth-service ]; then
+if [ ! -x bin/authentication-service ]; then
     ./scripts/build
 fi
 
+version="${VERSION#v}"
+arch="${ARCH:-amd64}"
+artifact="authentication-service-${version}-linux-${arch}.tar.xz"
+source_date_epoch="${SOURCE_DATE_EPOCH:-0}"
+package_dir="$(mktemp -d)"
+cleanup()
+{
+    rm -rf "${package_dir}"
+}
+trap cleanup EXIT
+
 mkdir -p dist/artifacts
-cd bin/
-tar cvJf ../dist/artifacts/rancher-auth-service.tar.xz .
+install -m 0755 bin/authentication-service "${package_dir}/authentication-service"
+tar --sort=name \
+    --mtime="@${source_date_epoch}" \
+    --owner=0 \
+    --group=0 \
+    --numeric-owner \
+    -C "${package_dir}" \
+    -cJf "dist/artifacts/${artifact}" \
+    authentication-service
+sha256sum "dist/artifacts/${artifact}"

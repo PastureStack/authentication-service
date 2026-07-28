@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-//Account defines properties an account on github has
+// Account defines properties an account on github has
 type Account struct {
 	ID        int    `json:"id,omitempty"`
 	Login     string `json:"login,omitempty"`
@@ -30,7 +30,7 @@ func (a *Account) toIdentity(externalIDType string, identity *client.Identity, u
 	identity.User = user
 }
 
-//Team defines properties a team on github has
+// Team defines properties a team on github has
 type Team struct {
 	ID           int                    `json:"id,omitempty"`
 	Organization map[string]interface{} `json:"organization,omitempty"`

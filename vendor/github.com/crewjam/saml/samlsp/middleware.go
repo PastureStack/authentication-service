@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/crewjam/saml"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Middleware implements middleware than allows a web application
@@ -129,11 +129,11 @@ func (m *Middleware) RequireAccount(handler http.Handler) http.Handler {
 		relayState := base64.URLEncoding.EncodeToString(randomBytes(42))
 
 		secretBlock := x509.MarshalPKCS1PrivateKey(m.ServiceProvider.Key)
-		state := jwt.New(jwtSigningMethod)
-		claims := state.Claims.(jwt.MapClaims)
-		claims["id"] = req.ID
-		claims["uri"] = r.URL.String()
-		signedState, err := state.SignedString(secretBlock)
+			state := jwt.NewWithClaims(jwtSigningMethod, jwt.MapClaims{
+				"id":  req.ID,
+				"uri": r.URL.String(),
+			})
+			signedState, err := state.SignedString(secretBlock)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -165,19 +165,15 @@ func (m *Middleware) RequireAccount(handler http.Handler) http.Handler {
 func (m *Middleware) getPossibleRequestIDs(r *http.Request) []string {
 	rv := []string{}
 	for _, value := range m.ClientState.GetStates(r) {
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwtSigningMethod.Name},
-		}
-		token, err := jwtParser.Parse(value, func(t *jwt.Token) (interface{}, error) {
-			secretBlock := x509.MarshalPKCS1PrivateKey(m.ServiceProvider.Key)
-			return secretBlock, nil
-		})
-		if err != nil || !token.Valid {
+		secretBlock := x509.MarshalPKCS1PrivateKey(m.ServiceProvider.Key)
+		claims, err := parseState(value, secretBlock)
+		if err != nil {
 			m.ServiceProvider.Logger.Printf("... invalid token %s", err)
 			continue
 		}
-		claims := token.Claims.(jwt.MapClaims)
-		rv = append(rv, claims["id"].(string))
+		if id, ok := stringClaim(claims, "id"); ok {
+			rv = append(rv, id)
+		}
 	}
 
 	// If IDP initiated requests are allowed, then we can expect an empty response ID.
@@ -203,37 +199,32 @@ func (m *Middleware) Authorize(w http.ResponseWriter, r *http.Request, assertion
 			return
 		}
 
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwtSigningMethod.Name},
-		}
-		state, err := jwtParser.Parse(stateValue, func(t *jwt.Token) (interface{}, error) {
-			return secretBlock, nil
-		})
-		if err != nil || !state.Valid {
-			m.ServiceProvider.Logger.Printf("Cannot decode state JWT: %s (%s)", err, stateValue)
-			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-			return
-		}
-		claims := state.Claims.(jwt.MapClaims)
-		if claims == nil {
-			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-			return
-		}
-		redirectURI = claims["uri"].(string)
+			claims, err := parseState(stateValue, secretBlock)
+			if err != nil {
+				m.ServiceProvider.Logger.Printf("Cannot decode state JWT: %s", err)
+				http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+				return
+			}
+			nextURI, ok := stringClaim(claims, "uri")
+			if !ok {
+				http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+				return
+			}
+			redirectURI = nextURI
 
-		// delete the cookie
-		m.ClientState.DeleteState(w, r, relayState)
+			// delete the cookie
+			m.ClientState.DeleteState(w, r, relayState)
 	}
 
 	now := saml.TimeNow()
 	claims := AuthorizationToken{}
-	claims.Audience = m.ServiceProvider.Metadata().EntityID
-	claims.IssuedAt = now.Unix()
-	claims.ExpiresAt = now.Add(m.TokenMaxAge).Unix()
-	claims.NotBefore = now.Unix()
+	claims.Audience = jwt.ClaimStrings{m.ServiceProvider.Metadata().EntityID}
+	claims.IssuedAt = jwt.NewNumericDate(now)
+	claims.ExpiresAt = jwt.NewNumericDate(now.Add(m.TokenMaxAge))
+	claims.NotBefore = jwt.NewNumericDate(now)
 	if sub := assertion.Subject; sub != nil {
 		if nameID := sub.NameID; nameID != nil {
-			claims.StandardClaims.Subject = nameID.Value
+			claims.RegisteredClaims.Subject = nameID.Value
 		}
 	}
 	for _, attributeStatement := range assertion.AttributeStatements {
@@ -277,7 +268,8 @@ func (m *Middleware) GetAuthorizationToken(r *http.Request) *AuthorizationToken 
 	}
 
 	tokenClaims := AuthorizationToken{}
-	token, err := jwt.ParseWithClaims(tokenStr, &tokenClaims, func(t *jwt.Token) (interface{}, error) {
+	jwtParser := jwt.NewParser(jwt.WithValidMethods([]string{jwtSigningMethod.Alg()}))
+	token, err := jwtParser.ParseWithClaims(tokenStr, &tokenClaims, func(t *jwt.Token) (interface{}, error) {
 		secretBlock := x509.MarshalPKCS1PrivateKey(m.ServiceProvider.Key)
 		return secretBlock, nil
 	})
@@ -285,16 +277,52 @@ func (m *Middleware) GetAuthorizationToken(r *http.Request) *AuthorizationToken 
 		m.ServiceProvider.Logger.Printf("ERROR: invalid token: %s", err)
 		return nil
 	}
-	if err := tokenClaims.StandardClaims.Valid(); err != nil {
+	if err := jwt.NewValidator().Validate(&tokenClaims); err != nil {
 		m.ServiceProvider.Logger.Printf("ERROR: invalid token claims: %s", err)
 		return nil
 	}
-	if tokenClaims.Audience != m.ServiceProvider.Metadata().EntityID {
+	if !hasAudience(tokenClaims.Audience, m.ServiceProvider.Metadata().EntityID) {
 		m.ServiceProvider.Logger.Printf("ERROR: invalid audience: %s", err)
 		return nil
 	}
 
 	return &tokenClaims
+}
+
+func parseState(value string, secretBlock []byte) (jwt.MapClaims, error) {
+	jwtParser := jwt.NewParser(jwt.WithValidMethods([]string{jwtSigningMethod.Alg()}))
+	token, err := jwtParser.ParseWithClaims(value, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return secretBlock, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims == nil {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	return claims, nil
+}
+
+func stringClaim(claims jwt.MapClaims, key string) (string, bool) {
+	value, found := claims[key]
+	if !found {
+		return "", false
+	}
+	valueString, ok := value.(string)
+	return valueString, ok
+}
+
+func hasAudience(audiences jwt.ClaimStrings, expected string) bool {
+	for _, audience := range audiences {
+		if audience == expected {
+			return true
+		}
+	}
+	return false
 }
 
 // RequireAttribute returns a middleware function that requires that the

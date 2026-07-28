@@ -14,10 +14,9 @@
   revision = "8902c56451e9b58ff940bbe5fec35d5f9c04584a"
 
 [[projects]]
-  name = "github.com/dgrijalva/jwt-go"
+  name = "github.com/golang-jwt/jwt/v5"
   packages = ["."]
-  revision = "d2709f9f1f31ebcda9651b03077758c1f3a0018c"
-  version = "v3.0.0"
+  version = "v5.3.1"
 
 [[projects]]
   name = "github.com/jonboulle/clockwork"
