@@ -6,5 +6,6 @@ source $(dirname $0)/version
 cd $(dirname $0)/..
 
 mkdir -p bin
-[ "$(uname)" != "Darwin" ] && LINKFLAGS="-extldflags -static -s"
-go build -a -tags 'static netgo' -ldflags "-X main.VERSION=$VERSION $LINKFLAGS" -o bin/rancher-auth-service
+LINKFLAGS="-buildid= -X main.VERSION=$VERSION -s -w"
+[ "$(uname)" != "Darwin" ] && LINKFLAGS="$LINKFLAGS -extldflags -static"
+CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -a -tags 'static netgo' -ldflags "$LINKFLAGS" -o bin/authentication-service

@@ -2,7 +2,7 @@ package model
 
 import "github.com/rancher/go-rancher/v2"
 
-//GithubConfig stores the github config read from JSON file
+// GithubConfig stores the github config read from JSON file
 type GithubConfig struct {
 	client.Resource
 	Hostname     string `json:"hostname"`

@@ -1,0 +1,76 @@
+# github.com/Azure/go-ntlmssp v0.1.1
+## explicit; go 1.24
+github.com/Azure/go-ntlmssp
+github.com/Azure/go-ntlmssp/internal/md4
+# github.com/beevik/etree v1.7.0
+## explicit; go 1.23.0
+github.com/beevik/etree
+# github.com/cpuguy83/go-md2man/v2 v2.0.7
+## explicit; go 1.12
+github.com/cpuguy83/go-md2man/v2/md2man
+# github.com/crewjam/saml v0.5.1
+## explicit; go 1.22
+github.com/crewjam/saml
+github.com/crewjam/saml/logger
+github.com/crewjam/saml/xmlenc
+# github.com/go-asn1-ber/asn1-ber v1.5.8
+## explicit; go 1.13
+github.com/go-asn1-ber/asn1-ber
+# github.com/go-ldap/ldap/v3 v3.4.14
+## explicit; go 1.25.0
+github.com/go-ldap/ldap/v3
+# github.com/golang-jwt/jwt/v5 v5.3.1
+## explicit; go 1.21
+github.com/golang-jwt/jwt/v5
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
+# github.com/gorilla/context v1.1.2
+## explicit; go 1.20
+github.com/gorilla/context
+# github.com/gorilla/mux v1.8.1
+## explicit; go 1.20
+github.com/gorilla/mux
+# github.com/gorilla/websocket v1.5.3
+## explicit; go 1.12
+github.com/gorilla/websocket
+# github.com/jonboulle/clockwork v0.5.0
+## explicit; go 1.21
+github.com/jonboulle/clockwork
+# github.com/mattermost/xml-roundtrip-validator v0.1.0
+## explicit; go 1.14
+github.com/mattermost/xml-roundtrip-validator
+# github.com/pkg/errors v0.9.1
+## explicit
+github.com/pkg/errors
+# github.com/rancher/go-rancher v0.0.0-20170518165705-cc9af4572762 => ./third_party/control-api-client
+## explicit; go 1.26.0
+github.com/rancher/go-rancher/api
+github.com/rancher/go-rancher/client
+github.com/rancher/go-rancher/v2
+# github.com/russellhaering/goxmldsig v1.6.1
+## explicit; go 1.23.0
+github.com/russellhaering/goxmldsig
+github.com/russellhaering/goxmldsig/etreeutils
+github.com/russellhaering/goxmldsig/types
+# github.com/russross/blackfriday/v2 v2.1.0
+## explicit
+github.com/russross/blackfriday/v2
+# github.com/sirupsen/logrus v1.9.4
+## explicit; go 1.17
+github.com/sirupsen/logrus
+# github.com/tomnomnom/linkheader v0.0.0-20250811210735-e5fe3b51442e
+## explicit; go 1.13
+github.com/tomnomnom/linkheader
+# github.com/urfave/cli v1.22.17
+## explicit; go 1.11
+github.com/urfave/cli
+# golang.org/x/crypto v0.54.0
+## explicit; go 1.25.0
+golang.org/x/crypto/md4
+golang.org/x/crypto/ripemd160
+# golang.org/x/sys v0.47.0
+## explicit; go 1.25.0
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# github.com/rancher/go-rancher => ./third_party/control-api-client

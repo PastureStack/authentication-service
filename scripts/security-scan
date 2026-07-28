@@ -1,0 +1,120 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+cd "$(dirname "$0")/.."
+
+TRIVY_BIN=${TRIVY_BIN:-trivy}
+TRIVY_CACHE_DIR=${TRIVY_CACHE_DIR:-$(pwd)/.trivy-cache}
+SECURITY_OUTPUT_DIR=${SECURITY_OUTPUT_DIR:-$(pwd)/dist/security}
+RELEASE_TAG=${RELEASE_TAG:-${VERSION_OVERRIDE:-}}
+
+if [ -z "$RELEASE_TAG" ] || [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s\n' 'RELEASE_TAG or VERSION_OVERRIDE must match vMAJOR.MINOR.PATCH.' >&2
+    exit 1
+fi
+
+version=${RELEASE_TAG#v}
+artifact=${ARTIFACT_PATH:-$(pwd)/dist/artifacts/authentication-service-${version}-linux-amd64.tar.xz}
+source_root=$(pwd)
+scan_root=$(mktemp -d /tmp/pasturestack-auth-security.XXXXXX)
+
+cleanup() {
+    case "$scan_root" in
+        /tmp/pasturestack-auth-security.*)
+            chmod -R u+w -- "$scan_root" 2>/dev/null || true
+            rm -rf -- "$scan_root"
+            ;;
+        *)
+            printf 'Refusing to remove unexpected scan path: %s\n' "$scan_root" >&2
+            return 1
+            ;;
+    esac
+}
+trap cleanup EXIT
+
+test -x "$TRIVY_BIN"
+test -s "$artifact"
+test -f security/openvex.json
+mkdir -p "$TRIVY_CACHE_DIR" "$SECURITY_OUTPUT_DIR" "$scan_root/product"
+tar -C "$scan_root/product" -xJf "$artifact"
+test -x "$scan_root/product/authentication-service"
+test "$(find "$scan_root/product" -maxdepth 1 -type f | wc -l)" -eq 1
+
+common_source_args=(
+    --cache-dir "$TRIVY_CACHE_DIR"
+    --skip-dirs "$source_root/.git"
+    --skip-dirs "$source_root/bin"
+    --skip-dirs "$source_root/dist"
+    --vex "$source_root/security/openvex.json"
+)
+common_product_args=(
+    --cache-dir "$TRIVY_CACHE_DIR"
+    --vex "$source_root/security/openvex.json"
+)
+
+"$TRIVY_BIN" --version > "$SECURITY_OUTPUT_DIR/trivy-version.txt"
+
+"$TRIVY_BIN" filesystem \
+    "${common_source_args[@]}" \
+    --show-suppressed \
+    --scanners vuln,misconfig,secret,license \
+    --format json \
+    --output "$SECURITY_OUTPUT_DIR/source-security-scan.json" \
+    "$source_root"
+
+"$TRIVY_BIN" rootfs \
+    "${common_product_args[@]}" \
+    --show-suppressed \
+    --scanners vuln,secret,license \
+    --format json \
+    --output "$SECURITY_OUTPUT_DIR/product-security-scan.json" \
+    "$scan_root/product"
+
+"$TRIVY_BIN" filesystem \
+    "${common_source_args[@]}" \
+    --scanners vuln,misconfig,secret,license \
+    --severity CRITICAL,HIGH \
+    --exit-code 1 \
+    --format table \
+    --output "$SECURITY_OUTPUT_DIR/source-critical-high.txt" \
+    "$source_root"
+
+"$TRIVY_BIN" rootfs \
+    "${common_product_args[@]}" \
+    --scanners vuln,secret,license \
+    --severity CRITICAL,HIGH \
+    --exit-code 1 \
+    --format table \
+    --output "$SECURITY_OUTPUT_DIR/product-critical-high.txt" \
+    "$scan_root/product"
+
+"$TRIVY_BIN" filesystem \
+    --cache-dir "$TRIVY_CACHE_DIR" \
+    --skip-dirs "$source_root/.git" \
+    --skip-dirs "$source_root/bin" \
+    --skip-dirs "$source_root/dist" \
+    --scanners vuln \
+    --format cyclonedx \
+    --output "$SECURITY_OUTPUT_DIR/source.cdx.json" \
+    "$source_root"
+
+"$TRIVY_BIN" rootfs \
+    --cache-dir "$TRIVY_CACHE_DIR" \
+    --scanners vuln \
+    --format cyclonedx \
+    --output "$SECURITY_OUTPUT_DIR/product.cdx.json" \
+    "$scan_root/product"
+
+cp security/openvex.json "$SECURITY_OUTPUT_DIR/openvex.json"
+(
+    cd "$SECURITY_OUTPUT_DIR"
+    sha256sum \
+        source-security-scan.json \
+        product-security-scan.json \
+        source.cdx.json \
+        product.cdx.json \
+        openvex.json \
+        > security-evidence.sha256
+)
+
+printf 'AUTHENTICATION_SECURITY_SCAN_OK artifact=%s release=%s\n' "$artifact" "$RELEASE_TAG"

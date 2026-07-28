@@ -2,16 +2,27 @@ package saml
 
 import (
 	"encoding/xml"
+	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/beevik/etree"
 )
 
 // HTTPPostBinding is the official URN for the HTTP-POST binding (transport)
-var HTTPPostBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+const HTTPPostBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
 
 // HTTPRedirectBinding is the official URN for the HTTP-Redirect binding (transport)
-var HTTPRedirectBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+const HTTPRedirectBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+
+// HTTPArtifactBinding is the official URN for the HTTP-Artifact binding (transport)
+const HTTPArtifactBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact"
+
+// SOAPBinding is the official URN for the SOAP binding (transport)
+const SOAPBinding = "urn:oasis:names:tc:SAML:2.0:bindings:SOAP"
+
+// SOAPBindingV1 is the URN for the SOAP binding in SAML 1.0
+const SOAPBindingV1 = "urn:oasis:names:tc:SAML:1.0:bindings:SOAP-binding"
 
 // EntitiesDescriptor represents the SAML object of the same name.
 //
@@ -25,6 +36,55 @@ type EntitiesDescriptor struct {
 	Signature           *etree.Element
 	EntitiesDescriptors []EntitiesDescriptor `xml:"urn:oasis:names:tc:SAML:2.0:metadata EntitiesDescriptor"`
 	EntityDescriptors   []EntityDescriptor   `xml:"urn:oasis:names:tc:SAML:2.0:metadata EntityDescriptor"`
+}
+
+// MarshalXML implements xml.Marshaler
+func (m EntitiesDescriptor) MarshalXML(e *xml.Encoder, _ xml.StartElement) error {
+	var validUntil *RelaxedTime
+	var cacheDuration *Duration
+	if m.ValidUntil != nil {
+		vu := RelaxedTime(*m.ValidUntil)
+		validUntil = &vu
+	}
+	if m.CacheDuration != nil {
+		cd := Duration(*m.CacheDuration)
+		cacheDuration = &cd
+	}
+	type Alias EntitiesDescriptor
+	aux := &struct {
+		ValidUntil    *RelaxedTime `xml:"validUntil,attr,omitempty"`
+		CacheDuration *Duration    `xml:"cacheDuration,attr,omitempty"`
+		*Alias
+	}{
+		ValidUntil:    validUntil,
+		CacheDuration: cacheDuration,
+		Alias:         (*Alias)(&m),
+	}
+	return e.Encode(aux)
+}
+
+// UnmarshalXML implements xml.Unmarshaler
+func (m *EntitiesDescriptor) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias EntitiesDescriptor
+	aux := &struct {
+		ValidUntil    *RelaxedTime `xml:"validUntil,attr,omitempty"`
+		CacheDuration *Duration    `xml:"cacheDuration,attr,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := d.DecodeElement(aux, &start); err != nil {
+		return err
+	}
+	if aux.ValidUntil != nil {
+		t := time.Time(*aux.ValidUntil)
+		m.ValidUntil = &t
+	}
+	if aux.CacheDuration != nil {
+		d := time.Duration(*aux.CacheDuration)
+		m.CacheDuration = &d
+	}
+	return nil
 }
 
 // Metadata as been renamed to EntityDescriptor
@@ -59,7 +119,7 @@ type EntityDescriptor struct {
 }
 
 // MarshalXML implements xml.Marshaler
-func (m EntityDescriptor) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+func (m EntityDescriptor) MarshalXML(e *xml.Encoder, _ xml.StartElement) error {
 	type Alias EntityDescriptor
 	aux := &struct {
 		ValidUntil    RelaxedTime `xml:"validUntil,attr,omitempty"`
@@ -104,7 +164,7 @@ type Organization struct {
 //
 // See http://docs.oasis-open.org/security/saml/v2.0/saml-metadata-2.0-os.pdf §2.2.4
 type LocalizedName struct {
-	Lang  string `xml:"xml lang,attr"`
+	Lang  string `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
 	Value string `xml:",chardata"`
 }
 
@@ -112,7 +172,7 @@ type LocalizedName struct {
 //
 // See http://docs.oasis-open.org/security/saml/v2.0/saml-metadata-2.0-os.pdf §2.2.5
 type LocalizedURI struct {
-	Lang  string `xml:"xml lang,attr"`
+	Lang  string `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
 	Value string `xml:",chardata"`
 }
 
@@ -133,7 +193,7 @@ type ContactPerson struct {
 // See http://docs.oasis-open.org/security/saml/v2.0/saml-metadata-2.0-os.pdf §2.4.1
 type RoleDescriptor struct {
 	ID                         string        `xml:",attr,omitempty"`
-	ValidUntil                 time.Time     `xml:"validUntil,attr,omitempty"`
+	ValidUntil                 *time.Time    `xml:"validUntil,attr,omitempty"`
 	CacheDuration              time.Duration `xml:"cacheDuration,attr,omitempty"`
 	ProtocolSupportEnumeration string        `xml:"protocolSupportEnumeration,attr"`
 	ErrorURL                   string        `xml:"errorURL,attr,omitempty"`
@@ -156,11 +216,21 @@ type EncryptionMethod struct {
 }
 
 // KeyInfo represents the XMLSEC object of the same name
-//
-// TODO(ross): revisit xmldsig and make this type more complete
 type KeyInfo struct {
-	XMLName     xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# KeyInfo"`
-	Certificate string   `xml:"X509Data>X509Certificate"`
+	XMLName  xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# KeyInfo"`
+	X509Data X509Data `xml:"X509Data"`
+}
+
+// X509Data represents the XMLSEC object of the same name
+type X509Data struct {
+	XMLName          xml.Name          `xml:"http://www.w3.org/2000/09/xmldsig# X509Data"`
+	X509Certificates []X509Certificate `xml:"X509Certificate"`
+}
+
+// X509Certificate represents the XMLSEC object of the same name
+type X509Certificate struct {
+	XMLName xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# X509Certificate"`
+	Data    string   `xml:",chardata"`
 }
 
 // Endpoint represents the SAML EndpointType object.
@@ -172,6 +242,76 @@ type Endpoint struct {
 	ResponseLocation string `xml:"ResponseLocation,attr,omitempty"`
 }
 
+func checkEndpointLocation(binding string, location string) (string, error) {
+	// Within the SAML standard, the complex type EndpointType describes a
+	// SAML protocol binding endpoint at which a SAML entity can be sent
+	// protocol messages. In particular, the location of an endpoint type is
+	// defined as follows in the Metadata for the OASIS Security Assertion
+	// Markup Language (SAML) V2.0 - 2.2.2 Complex Type EndpointType:
+	//
+	//   Location [Required] A required URI attribute that specifies the
+	//   location of the endpoint. The allowable syntax of this URI depends
+	//   on the protocol binding.
+	switch binding {
+	case HTTPPostBinding,
+		HTTPRedirectBinding,
+		HTTPArtifactBinding,
+		SOAPBinding,
+		SOAPBindingV1:
+		locationURL, err := url.Parse(location)
+		if err != nil {
+			return "", fmt.Errorf("invalid url %q: %w", location, err)
+		}
+		switch locationURL.Scheme {
+		case "http", "https":
+		// ok
+		default:
+			return "", fmt.Errorf("invalid url scheme %q for binding %q",
+				locationURL.Scheme, binding)
+		}
+	default:
+		// We don't know what form location should take, but the protocol
+		// requires that we validate its syntax.
+		//
+		// In practice, lots of metadata contains random bindings, for example
+		// "urn:mace:shibboleth:1.0:profiles:AuthnRequest" from our own test suite.
+		//
+		// We can't fail, but we also can't allow a location parameter whose syntax we
+		// cannot verify. The least-bad course of action here is to set location to
+		// and empty string, and hope the caller doesn't care need it.
+		location = ""
+	}
+
+	return location, nil
+}
+
+// UnmarshalXML implements xml.Unmarshaler
+func (m *Endpoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias Endpoint
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := d.DecodeElement(aux, &start); err != nil {
+		return err
+	}
+
+	var err error
+	m.Location, err = checkEndpointLocation(m.Binding, m.Location)
+	if err != nil {
+		return err
+	}
+	if m.ResponseLocation != "" {
+		m.ResponseLocation, err = checkEndpointLocation(m.Binding, m.ResponseLocation)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // IndexedEndpoint represents the SAML IndexedEndpointType object.
 //
 // See http://docs.oasis-open.org/security/saml/v2.0/saml-metadata-2.0-os.pdf §2.2.3
@@ -181,6 +321,38 @@ type IndexedEndpoint struct {
 	ResponseLocation *string `xml:"ResponseLocation,attr,omitempty"`
 	Index            int     `xml:"index,attr"`
 	IsDefault        *bool   `xml:"isDefault,attr"`
+}
+
+// UnmarshalXML implements xml.Unmarshaler
+func (m *IndexedEndpoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias IndexedEndpoint
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := d.DecodeElement(aux, &start); err != nil {
+		return err
+	}
+
+	var err error
+	m.Location, err = checkEndpointLocation(m.Binding, m.Location)
+	if err != nil {
+		return err
+	}
+	if m.ResponseLocation != nil {
+		responseLocation, err := checkEndpointLocation(m.Binding, *m.ResponseLocation)
+		if err != nil {
+			return err
+		}
+		if responseLocation != "" {
+			m.ResponseLocation = &responseLocation
+		} else {
+			m.ResponseLocation = nil
+		}
+	}
+
+	return nil
 }
 
 // SSODescriptor represents the SAML complex type SSODescriptor
@@ -203,6 +375,7 @@ type IDPSSODescriptor struct {
 	WantAuthnRequestsSigned *bool `xml:",attr"`
 
 	SingleSignOnServices       []Endpoint  `xml:"SingleSignOnService"`
+	ArtifactResolutionServices []Endpoint  `xml:"ArtifactResolutionService"`
 	NameIDMappingServices      []Endpoint  `xml:"NameIDMappingService"`
 	AssertionIDRequestServices []Endpoint  `xml:"AssertionIDRequestService"`
 	AttributeProfiles          []string    `xml:"AttributeProfile"`

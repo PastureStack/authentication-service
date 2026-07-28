@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+go mod vendor
+go mod verify
+
+# crewjam/saml v0.5.1 ships a legacy go-fuzz harness as production source.
+# It contains a fixed test private key and is not imported by this service.
+# Keep the dependency and its license intact, but exclude that non-runtime
+# harness from the reviewed vendor tree and release source.
+rm -f vendor/github.com/crewjam/saml/xmlenc/fuzz.go
+
+test -f vendor/github.com/crewjam/saml/LICENSE
+test ! -e vendor/github.com/crewjam/saml/xmlenc/fuzz.go

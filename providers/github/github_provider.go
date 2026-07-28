@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net/http"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
 	v1client "github.com/rancher/go-rancher/client"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
+	log "github.com/sirupsen/logrus"
 )
 
-//Constants for github
+// Constants for github
 const (
 	Name                           = "github"
 	Config                         = Name + "config"
@@ -29,7 +29,7 @@ const (
 func init() {
 }
 
-//InitializeProvider returns a new instance of the provider
+// InitializeProvider returns a new instance of the provider
 func InitializeProvider() (*GProvider, error) {
 	client := &http.Client{}
 	githubClient := &GClient{}
@@ -41,22 +41,22 @@ func InitializeProvider() (*GProvider, error) {
 	return githubProvider, nil
 }
 
-//GProvider implements an IdentityProvider for github
+// GProvider implements an IdentityProvider for github
 type GProvider struct {
 	githubClient *GClient
 }
 
-//GetName returns the name of the provider
+// GetName returns the name of the provider
 func (g *GProvider) GetName() string {
 	return Name
 }
 
-//GetUserType returns the string used to identify a user account for this provider
+// GetUserType returns the string used to identify a user account for this provider
 func (g *GProvider) GetUserType() string {
 	return UserType
 }
 
-//GenerateToken authenticates the given code and returns the token
+// GenerateToken authenticates the given code and returns the token
 func (g *GProvider) GenerateToken(json map[string]string) (model.Token, int, error) {
 	//getAccessToken
 	securityCode := json["code"]
@@ -64,13 +64,13 @@ func (g *GProvider) GenerateToken(json map[string]string) (model.Token, int, err
 	status := 0
 
 	if securityCode != "" {
-		log.Debugf("GitHubIdentityProvider GenerateToken called for securityCode %v", securityCode)
+		log.Debug("GitHub identity provider is exchanging an authorization code")
 		accessToken, err := g.githubClient.getAccessToken(securityCode)
 		if err != nil {
 			log.Errorf("Error generating accessToken from github %v", err)
 			return model.Token{}, status, err
 		}
-		log.Debugf("Received AccessToken from github %v", accessToken)
+		log.Debug("GitHub identity provider received an access token")
 		return g.createToken(accessToken)
 	} else if accessToken != "" {
 		return g.createToken(accessToken)
@@ -102,7 +102,7 @@ func (g *GProvider) createToken(accessToken string) (model.Token, int, error) {
 	return token, status, nil
 }
 
-//GetUserIdentity returns the "user" from the list of identities
+// GetUserIdentity returns the "user" from the list of identities
 func GetUserIdentity(identities []client.Identity, userType string) (client.Identity, bool) {
 	for _, identity := range identities {
 		if identity.ExternalIdType == userType {
@@ -112,17 +112,17 @@ func GetUserIdentity(identities []client.Identity, userType string) (client.Iden
 	return client.Identity{}, false
 }
 
-//RefreshToken re-authenticates and generate a new token
+// RefreshToken re-authenticates and generate a new token
 func (g *GProvider) RefreshToken(json map[string]string) (model.Token, int, error) {
 	accessToken := json["accessToken"]
 	if accessToken != "" {
-		log.Debugf("GitHubIdentityProvider RefreshToken called for accessToken %v", accessToken)
+		log.Debug("GitHub identity provider is refreshing a session")
 		return g.createToken(accessToken)
 	}
 	return model.Token{}, 0, fmt.Errorf("Cannot refresh token from github, no access token found in request")
 }
 
-//GetIdentities returns list of user and group identities associated to this token
+// GetIdentities returns list of user and group identities associated to this token
 func (g *GProvider) GetIdentities(accessToken string) ([]client.Identity, error) {
 	var identities []client.Identity
 
@@ -157,7 +157,7 @@ func (g *GProvider) GetIdentities(accessToken string) ([]client.Identity, error)
 	return identities, nil
 }
 
-//GetIdentity returns the identity by externalID and externalIDType
+// GetIdentity returns the identity by externalID and externalIDType
 func (g *GProvider) GetIdentity(externalID string, externalIDType string, accessToken string) (client.Identity, error) {
 	identity := client.Identity{Resource: client.Resource{
 		Type: "identity",
@@ -188,7 +188,7 @@ func (g *GProvider) GetIdentity(externalID string, externalIDType string, access
 	}
 }
 
-//SearchIdentities returns the identity by name
+// SearchIdentities returns the identity by name
 func (g *GProvider) SearchIdentities(name string, exactMatch bool, accessToken string) ([]client.Identity, error) {
 	var identities []client.Identity
 
@@ -214,14 +214,14 @@ func (g *GProvider) SearchIdentities(name string, exactMatch bool, accessToken s
 	return identities, nil
 }
 
-//LoadConfig initializes the provider with the passes config
+// LoadConfig initializes the provider with the passes config
 func (g *GProvider) LoadConfig(authConfig *model.AuthConfig) error {
 	configObj := authConfig.GithubConfig
 	g.githubClient.config = &configObj
 	return nil
 }
 
-//GetConfig returns the provider config
+// GetConfig returns the provider config
 func (g *GProvider) GetConfig() model.AuthConfig {
 	log.Debug("In github getConfig")
 
@@ -236,11 +236,11 @@ func (g *GProvider) GetConfig() model.AuthConfig {
 		Type: "githubconfig",
 	}
 
-	log.Debug("In github authConfig %v", authConfig)
+	log.Debug("Loaded github authConfig")
 	return authConfig
 }
 
-//GetSettings transforms the provider config to db settings
+// GetSettings transforms the provider config to db settings
 func (g *GProvider) GetSettings() map[string]string {
 	settings := make(map[string]string)
 
@@ -253,7 +253,7 @@ func (g *GProvider) GetSettings() map[string]string {
 	return settings
 }
 
-//GetProviderSettingList returns the provider specific db setting list
+// GetProviderSettingList returns the provider specific db setting list
 func (g *GProvider) GetProviderSettingList(listOnly bool) []string {
 	var settings []string
 	settings = append(settings, hostnameSetting)
@@ -265,7 +265,7 @@ func (g *GProvider) GetProviderSettingList(listOnly bool) []string {
 	return settings
 }
 
-//AddProviderConfig adds the provider config into the generic config using the settings from db
+// AddProviderConfig adds the provider config into the generic config using the settings from db
 func (g *GProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSettings map[string]string) {
 	githubConfig := model.GithubConfig{Resource: client.Resource{
 		Type: "githubconfig",
@@ -278,7 +278,7 @@ func (g *GProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSett
 	authConfig.GithubConfig = githubConfig
 }
 
-//GetLegacySettings returns the provider specific legacy db settings
+// GetLegacySettings returns the provider specific legacy db settings
 func (g *GProvider) GetLegacySettings() map[string]string {
 	settings := make(map[string]string)
 	settings["accessModeSetting"] = githubAccessModeSetting
@@ -286,7 +286,7 @@ func (g *GProvider) GetLegacySettings() map[string]string {
 	return settings
 }
 
-//GetRedirectURL returns the provider specific redirect URL used by UI
+// GetRedirectURL returns the provider specific redirect URL used by UI
 func (g *GProvider) GetRedirectURL() string {
 	redirect := ""
 	if g.githubClient.config.Hostname != "" {
@@ -299,7 +299,7 @@ func (g *GProvider) GetRedirectURL() string {
 	return redirect
 }
 
-//GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
+// GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
 func (g *GProvider) GetIdentitySeparator() string {
 	return ","
 }

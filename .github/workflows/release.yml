@@ -1,0 +1,241 @@
+name: Release Authentication Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Semantic release tag, for example v0.2.4
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: authentication-service-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'PastureStack/authentication-service' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Validate release request
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf 'Release tag must match vMAJOR.MINOR.PATCH\n' >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            printf 'Tag already exists: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            printf 'Release already exists: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+
+      - name: Check out the immutable source commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --filter=blob:none \
+            "https://github.com/${GITHUB_REPOSITORY}.git" source
+          git -C source checkout --detach "$SOURCE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C source status --short)"
+
+      - name: Build, test, validate, and package twice
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_epoch="$(git -C source show -s --format=%ct HEAD)"
+          image="pasturestack-authentication-service-release:${GITHUB_RUN_ID}"
+          source_path="${GITHUB_WORKSPACE}/source"
+
+          docker build \
+            --build-arg DAPPER_HOST_ARCH=amd64 \
+            --tag "$image" \
+            --file source/Dockerfile.dapper \
+            source
+
+          run_ci() {
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              --volume "${source_path}:/go/src/github.com/PastureStack/authentication-service" \
+              --env ARCH=amd64 \
+              --env "GOCACHE=/tmp/go-build-cache-${GITHUB_RUN_ID}" \
+              --env "XDG_CONFIG_HOME=/tmp/go-config-${GITHUB_RUN_ID}" \
+              --env "GIT_CONFIG_GLOBAL=/tmp/gitconfig-${GITHUB_RUN_ID}" \
+              --env "VERSION_OVERRIDE=${RELEASE_TAG}" \
+              --env "SOURCE_DATE_EPOCH=${source_epoch}" \
+              "$image" ci
+          }
+
+          run_ci
+          version="${RELEASE_TAG#v}"
+          artifact="source/dist/artifacts/authentication-service-${version}-linux-amd64.tar.xz"
+          test -s "$artifact"
+          cp "$artifact" /tmp/authentication-service-first.tar.xz
+
+          rm -rf source/bin source/dist
+          run_ci
+          cmp /tmp/authentication-service-first.tar.xz "$artifact"
+
+          mkdir artifact-check
+          tar -xJf "$artifact" -C artifact-check
+          test -x artifact-check/authentication-service
+          test "$(find artifact-check -maxdepth 1 -type f | wc -l)" -eq 1
+          artifact-check/authentication-service --version |
+            grep -F "${version}" >/dev/null
+          sha256sum "$artifact" |
+            sed "s#  source/dist/artifacts/#  #" \
+            >"${artifact}.sha256"
+          (
+            cd source/dist/artifacts
+            sha256sum --check \
+              "authentication-service-${version}-linux-amd64.tar.xz.sha256"
+          )
+          test -z "$(git -C source status --short --untracked-files=no)"
+
+      - name: Verify scanner and produce security evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trivy_version=0.73.0
+          trivy_sha256=2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b
+          trivy_source_sha=40c73e5d6166dcc0346a1ab4e94499d1572854e4
+          trivy_root="${RUNNER_TEMP}/trivy-${trivy_version}"
+          trivy_asset="${trivy_root}/trivy_${trivy_version}_Linux-64bit.tar.gz"
+          mkdir -p "$trivy_root"
+
+          curl --fail --show-error --silent --location \
+            "https://github.com/aquasecurity/trivy/releases/download/v${trivy_version}/trivy_${trivy_version}_Linux-64bit.tar.gz" \
+            --output "$trivy_asset"
+          printf '%s  %s\n' "$trivy_sha256" "$trivy_asset" | sha256sum --check
+          trivy_attestation_status=verified
+          attestation_error="${trivy_root}/attestation-error.txt"
+          if ! gh attestation verify "$trivy_asset" \
+            --repo aquasecurity/trivy \
+            --signer-workflow aquasecurity/trivy/.github/workflows/reusable-release.yaml \
+            --source-ref "refs/tags/v${trivy_version}" \
+            --source-digest "$trivy_source_sha" \
+            --signer-digest "$trivy_source_sha" \
+            2>"$attestation_error"; then
+            if grep -Fq 'organization has an IP allow list enabled' \
+              "$attestation_error"; then
+              trivy_attestation_status=unavailable-source-ip-allow-list
+              printf '::warning::Trivy provenance API is unavailable because the source organization rejects this hosted-runner IP. Exact asset SHA-256 verification remains mandatory.\n'
+            else
+              cat "$attestation_error" >&2
+              exit 1
+            fi
+          fi
+          tar -xzf "$trivy_asset" -C "$trivy_root"
+          test "$("${trivy_root}/trivy" --version | awk '/^Version:/ {print $2}')" = "$trivy_version"
+
+          TRIVY_BIN="${trivy_root}/trivy" \
+          TRIVY_CACHE_DIR="${RUNNER_TEMP}/trivy-cache" \
+          RELEASE_TAG="$RELEASE_TAG" \
+            bash source/scripts/security-scan
+
+          security_root="source/dist/security"
+          printf '%s\n' "$trivy_attestation_status" \
+            >"${security_root}/trivy-attestation-verification.txt"
+          (
+            cd "$security_root"
+            sha256sum trivy-attestation-verification.txt \
+              >>security-evidence.sha256
+          )
+          for report in source-security-scan.json product-security-scan.json; do
+            jq -e '.SchemaVersion == 2 and (.Results | type == "array")' \
+              "${security_root}/${report}" >/dev/null
+          done
+          jq -e '.bomFormat == "CycloneDX" and .specVersion == "1.7" and (.components | length >= 25)' \
+            "${security_root}/source.cdx.json" >/dev/null
+          jq -e '.bomFormat == "CycloneDX" and .specVersion == "1.7" and (.components | length >= 20)' \
+            "${security_root}/product.cdx.json" >/dev/null
+          (
+            cd "$security_root"
+            sha256sum --check security-evidence.sha256
+          )
+
+          version="${RELEASE_TAG#v}"
+          printf 'RELEASE_ARTIFACT=%s\n' \
+            "${GITHUB_WORKSPACE}/source/dist/artifacts/authentication-service-${version}-linux-amd64.tar.xz" \
+            >> "$GITHUB_ENV"
+          printf 'PRODUCT_SBOM=%s\n' \
+            "${GITHUB_WORKSPACE}/${security_root}/product.cdx.json" \
+            >> "$GITHUB_ENV"
+          printf 'TRIVY_ATTESTATION_STATUS=%s\n' \
+            "$trivy_attestation_status" \
+            >> "$GITHUB_ENV"
+
+      - name: Attest product provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ env.RELEASE_ARTIFACT }}
+
+      - name: Attest product SBOM
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ env.RELEASE_ARTIFACT }}
+          sbom-path: ${{ env.PRODUCT_SBOM }}
+
+      - name: Publish immutable GitHub release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="${RELEASE_TAG#v}"
+          artifact="source/dist/artifacts/authentication-service-${version}-linux-amd64.tar.xz"
+          checksum="${artifact}.sha256"
+          security_root="source/dist/security"
+          artifact_sha="$(sha256sum "$artifact" | awk '{print $1}')"
+
+          {
+            printf '# PastureStack Authentication Service %s\n\n' "$RELEASE_TAG"
+            printf 'This release provides provider-neutral OpenID Connect authorization-code authentication, a short-lived signed identity proof for explicit account linking or reassignment, transactional provider switching, and local-administrator recovery without username or email guessing.\n\n'
+            printf '## Immutable coordinates\n\n'
+            printf -- '- Source commit: `%s`\n' "$SOURCE_SHA"
+            printf -- '- Artifact SHA-256: `%s`\n\n' "$artifact_sha"
+            printf 'Two clean builds produced byte-identical archives. The full race-enabled test suite, formatting check, and static analysis passed before publication.\n\n'
+            printf 'The release includes source and product CycloneDX 1.7 SBOMs, complete Trivy JSON reports, Critical/High gates, OpenVEX applicability evidence, checksums, and GitHub-hosted SLSA provenance and SBOM attestations. Trivy 0.73.0 was fixed by exact asset SHA-256 and version checked before use.\n\n'
+            if [[ "$TRIVY_ATTESTATION_STATUS" == verified ]]; then
+              printf 'The Trivy asset provenance was also verified against its release workflow, tag, and source commit.\n\n'
+            else
+              printf 'The Trivy source organization rejected the hosted runner through its IP allow list, so its public provenance API could not be queried. This exact limitation is recorded in the attached verification-status evidence; every other scanner verification remains fail-closed.\n\n'
+            fi
+            printf 'PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.\n'
+          } >release-notes.md
+
+          gh release create "$RELEASE_TAG" \
+            "$artifact" \
+            "$checksum" \
+            "${security_root}/source.cdx.json" \
+            "${security_root}/product.cdx.json" \
+            "${security_root}/source-security-scan.json" \
+            "${security_root}/product-security-scan.json" \
+            "${security_root}/source-critical-high.txt" \
+            "${security_root}/product-critical-high.txt" \
+            "${security_root}/openvex.json" \
+            "${security_root}/security-evidence.sha256" \
+            "${security_root}/trivy-version.txt" \
+            "${security_root}/trivy-attestation-verification.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "PastureStack Authentication Service ${RELEASE_TAG}" \
+            --notes-file release-notes.md

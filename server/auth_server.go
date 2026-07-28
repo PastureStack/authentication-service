@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,12 +15,13 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/providers"
+	"github.com/PastureStack/authentication-service/util"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/providers"
-	"github.com/rancher/rancher-auth-service/util"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
@@ -37,6 +39,10 @@ const (
 	authServiceConfigUpdateTimestamp          = "auth.service.config.update.timestamp"
 	noIdentityLookupSupportedSetting          = "api.auth.external.provider.no.identity.lookup"
 	apiAuthShibbolethRedirectWhitelistSetting = "api.auth.shibboleth.redirect.whitelist"
+	localRecoveryEnabledSetting               = "api.auth.local.recovery.enabled"
+	localRecoveryVerifiedAtSetting            = "api.auth.local.recovery.verified.at"
+	localRecoveryMFAReadySetting              = "api.auth.local.recovery.mfa.ready"
+	localRecoveryVerificationMaxAge           = 5 * time.Minute
 )
 
 var (
@@ -44,18 +50,18 @@ var (
 	privateKey         *rsa.PrivateKey
 	publicKey          *rsa.PublicKey
 	authConfigInMemory model.AuthConfig
-	//RancherClient is the client configured to connect to Cattle
-	RancherClient                                                                *client.RancherClient
+	// PlatformClient is the client configured for the compatible control-platform API.
+	PlatformClient                                                               *client.RancherClient
 	publicKeyFile, publicKeyFileContents, privateKeyFile, privateKeyFileContents string
 	selfSignedKeyFile, selfSignedCertFile                                        string
 	//IDPMetadataFile is the path to the metadata file of the Shibboleth IDP
 	IDPMetadataFile string
 	//SamlServiceProvider is the handle to the SamlServiceProvider configured by the router
-	SamlServiceProvider *model.RancherSamlServiceProvider
+	SamlServiceProvider *model.PlatformSamlServiceProvider
 	refreshReqChannel   *chan int
 	authConfigFile      string
 	key                 []byte
-	CattleURL           string
+	PlatformURL         string
 )
 
 type AESSecret struct {
@@ -63,7 +69,7 @@ type AESSecret struct {
 	CipherText []byte
 }
 
-//SetEnv sets the parameters necessary
+// SetEnv sets the parameters necessary
 func SetEnv(c *cli.Context) {
 
 	publicKeyFile = c.GlobalString("rsa-public-key-file")
@@ -100,20 +106,20 @@ func SetEnv(c *cli.Context) {
 		return
 	}
 
-	cattleURL := c.GlobalString("cattle-url")
-	if len(cattleURL) == 0 {
-		log.Fatalf("CATTLE_URL is not set")
+	platformURL := c.GlobalString("platform-url")
+	if len(platformURL) == 0 {
+		log.Fatalf("PLATFORM_URL is not set")
 	}
-	CattleURL = cattleURL
+	PlatformURL = platformURL
 
-	cattleAPIKey := c.GlobalString("cattle-access-key")
-	if len(cattleAPIKey) == 0 {
-		log.Fatalf("CATTLE_ACCESS_KEY is not set")
+	platformAPIKey := c.GlobalString("platform-access-key")
+	if len(platformAPIKey) == 0 {
+		log.Fatalf("PLATFORM_ACCESS_KEY is not set")
 	}
 
-	cattleSecretKey := c.GlobalString("cattle-secret-key")
-	if len(cattleSecretKey) == 0 {
-		log.Fatalf("CATTLE_SECRET_KEY is not set")
+	platformSecretKey := c.GlobalString("platform-secret-key")
+	if len(platformSecretKey) == 0 {
+		log.Fatalf("PLATFORM_SECRET_KEY is not set")
 	}
 
 	selfSignedKeyFile = c.GlobalString("self-signed-key-file")
@@ -121,16 +127,16 @@ func SetEnv(c *cli.Context) {
 	IDPMetadataFile = c.GlobalString("idp-metadata-file")
 	authConfigFile = c.GlobalString("auth-config-file")
 
-	//configure cattle client
+	// Configure the compatible control-platform client.
 	var err error
-	RancherClient, err = newCattleClient(cattleURL, cattleAPIKey, cattleSecretKey)
+	PlatformClient, err = newPlatformClient(platformURL, platformAPIKey, platformSecretKey)
 	if err != nil {
-		log.Fatalf("Failed to configure cattle client: %v", err)
+		log.Fatalf("Failed to configure platform client: %v", err)
 	}
 
-	err = testCattleConnect()
+	err = testPlatformConnect()
 	if err != nil {
-		log.Errorf("Failed to connect to rancher cattle client: %v", err)
+		log.Errorf("Failed to connect to platform client: %v", err)
 	}
 
 	err = UpgradeSettings()
@@ -147,11 +153,11 @@ func SetEnv(c *cli.Context) {
 	refreshReqChannel = &refChan
 }
 
-func newCattleClient(cattleURL string, cattleAccessKey string, cattleSecretKey string) (*client.RancherClient, error) {
+func newPlatformClient(platformURL string, platformAccessKey string, platformSecretKey string) (*client.RancherClient, error) {
 	apiClient, err := client.NewRancherClient(&client.ClientOpts{
-		Url:       cattleURL,
-		AccessKey: cattleAccessKey,
-		SecretKey: cattleSecretKey,
+		Url:       platformURL,
+		AccessKey: platformAccessKey,
+		SecretKey: platformSecretKey,
 	})
 
 	if err != nil {
@@ -161,9 +167,9 @@ func newCattleClient(cattleURL string, cattleAccessKey string, cattleSecretKey s
 	return apiClient, nil
 }
 
-func testCattleConnect() error {
+func testPlatformConnect() error {
 	opts := &client.ListOpts{}
-	_, err := RancherClient.ContainerEvent.List(opts)
+	_, err := PlatformClient.ContainerEvent.List(opts)
 	return err
 }
 
@@ -183,6 +189,29 @@ func initProviderWithConfig(authConfig *model.AuthConfig) (providers.IdentityPro
 	return newProvider, nil
 }
 
+func prepareProviderConfig(authConfig *model.AuthConfig) error {
+	if authConfig.Provider == "shibbolethconfig" {
+		authConfig.ShibbolethConfig.IDPMetadataFilePath = IDPMetadataFile
+		authConfig.ShibbolethConfig.SPSelfSignedCertFilePath = selfSignedCertFile
+		authConfig.ShibbolethConfig.SPSelfSignedKeyFilePath = selfSignedKeyFile
+		authConfig.ShibbolethConfig.PlatformAPIHost = GetPlatformAPIHost()
+	}
+	if authConfig.Provider == "oidcconfig" {
+		authConfig.OIDCConfig.PlatformAPIHost = GetPlatformAPIHost()
+		if authConfig.OIDCConfig.ClientSecret == "" && authConfig.OIDCConfig.ClientSecretSet {
+			settings, err := readSettings("oidc")
+			if err != nil {
+				return errors.Wrap(err, "failed to read the existing OIDC client secret")
+			}
+			authConfig.OIDCConfig.ClientSecret = settings["api.auth.oidc.client.secret"]
+			if authConfig.OIDCConfig.ClientSecret == "" {
+				return fmt.Errorf("the previously saved OIDC client secret could not be found")
+			}
+		}
+	}
+	return nil
+}
+
 // This code is adapted from rancher secrets-api https://github.com/rancher/secrets-api/blob/master/pkg/aesutils/key.go#L36
 func readPrivateKey() ([]byte, error) {
 	keyData, err := ioutil.ReadFile(authConfigFile)
@@ -191,7 +220,7 @@ func readPrivateKey() ([]byte, error) {
 		return []byte{}, err
 	}
 
-	log.Debug("Key: %s", string(keyData))
+	log.Debugf("Loaded auth config key file %s", authConfigFile)
 	return keyData, nil
 }
 
@@ -283,7 +312,7 @@ func readSettings(provider string) (map[string]string, error) {
 	var nilSettings = make(map[string]string)
 	filters := make(map[string]interface{})
 	filters["key"] = "auth.config"
-	authColl, err := RancherClient.GenericObject.List(&client.ListOpts{
+	authColl, err := PlatformClient.GenericObject.List(&client.ListOpts{
 		Filters: filters,
 	})
 	if err != nil {
@@ -298,37 +327,42 @@ func readSettings(provider string) (map[string]string, error) {
 
 	authConfigRes := authColl.Data[0]
 	authConfig := authConfigRes.ResourceData["data"]
-	byteSettings, err := decryptConfig(key, authConfig.(string))
-	err = json.Unmarshal(byteSettings, &dbSettings)
+	encryptedConfig, ok := authConfig.(string)
+	if !ok || strings.TrimSpace(encryptedConfig) == "" {
+		return nilSettings, fmt.Errorf("stored authentication configuration is invalid")
+	}
+	byteSettings, err := decryptConfig(key, encryptedConfig)
 	if err != nil {
 		return nilSettings, err
 	}
-	logSettings := make(map[string]string)
-	for k, v := range dbSettings[provider] {
-		logSettings[k] = v
+	if err := json.Unmarshal(byteSettings, &dbSettings); err != nil {
+		return nilSettings, err
 	}
-	pName := provider + "config"
-	if providers.IsProviderSupported(pName) {
-		p, err := providers.GetProvider(pName)
-		if err != nil {
-			return nilSettings, err
-		}
-		for _, s := range p.GetProviderSecretSettings() {
-			logSettings[s] = "****"
-		}
+	providerSettings, found := dbSettings[provider]
+	if !found {
+		log.Debugf("No stored settings found for provider %s", provider)
+		return nilSettings, nil
 	}
-	log.Debugf("Settings from db for provider %s: %v", provider, logSettings)
-	return dbSettings[provider], nil
+	log.Debugf("Loaded %d stored settings for provider %s", len(providerSettings), provider)
+	return providerSettings, nil
 }
 
 func readCommonSettings(settings []string) (map[string]string, error) {
 	var dbSettings = make(map[string]string)
+	if PlatformClient == nil {
+		return dbSettings, fmt.Errorf("platform API client is not configured")
+	}
 
 	for _, key := range settings {
-		setting, err := RancherClient.Setting.ById(key)
+		setting, err := PlatformClient.Setting.ById(key)
 		if err != nil {
 			log.Errorf("Error reading the setting %v , error: %v", key, err)
 			return dbSettings, err
+		}
+		if setting == nil {
+			log.Warnf("Setting %v is missing, using empty value", key)
+			dbSettings[key] = ""
+			continue
 		}
 		dbSettings[key] = setting.ActiveValue
 	}
@@ -353,7 +387,7 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 	// Save entire encryped conf in GO
 	filters := make(map[string]interface{})
 	filters["key"] = "auth.config"
-	authColl, err := RancherClient.GenericObject.List(&client.ListOpts{
+	authColl, err := PlatformClient.GenericObject.List(&client.ListOpts{
 		Filters: filters,
 	})
 	if err != nil {
@@ -362,7 +396,7 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 	}
 
 	if len(authColl.Data) == 0 {
-		_, err := RancherClient.GenericObject.Create(&client.GenericObject{
+		_, err := PlatformClient.GenericObject.Create(&client.GenericObject{
 			Name:         "auth.config",
 			Key:          "auth.config",
 			ResourceData: resourceData,
@@ -418,7 +452,7 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 		resourceData := map[string]interface{}{
 			"data": encrConf,
 		}
-		_, err = RancherClient.GenericObject.Update(&authColl.Data[0], &client.GenericObject{
+		_, err = PlatformClient.GenericObject.Update(&authColl.Data[0], &client.GenericObject{
 			ResourceData: resourceData,
 		})
 		if err != nil {
@@ -432,18 +466,18 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 func updateCommonSettings(settings map[string]string) error {
 	for key, value := range settings {
 		if value != "" {
-			log.Debugf("Update setting key:%v value: %v", key, value)
-			setting, err := RancherClient.Setting.ById(key)
+			log.Debugf("Updating platform setting %v", key)
+			setting, err := PlatformClient.Setting.ById(key)
 			if err != nil {
 				log.Errorf("Error getting the setting %v , error: %v", key, err)
 				return err
 			}
 
-			setting, err = RancherClient.Setting.Update(setting, &client.Setting{
+			setting, err = PlatformClient.Setting.Update(setting, &client.Setting{
 				Value: value,
 			})
 			if err != nil {
-				log.Errorf("Error updating the setting %v to value %v, error: %v", key, value, err)
+				log.Errorf("Error updating the setting %v: %v", key, err)
 				return err
 			}
 		}
@@ -499,13 +533,23 @@ func getAllowedIdentities(idString string, accessToken string, separator string)
 	return identities
 }
 
-//UpdateConfig updates the config in DB
+// UpdateConfig updates the config in DB
 func UpdateConfig(authConfig model.AuthConfig) error {
-	if authConfig.Provider == "shibbolethconfig" {
-		authConfig.ShibbolethConfig.IDPMetadataFilePath = IDPMetadataFile
-		authConfig.ShibbolethConfig.SPSelfSignedCertFilePath = selfSignedCertFile
-		authConfig.ShibbolethConfig.SPSelfSignedKeyFilePath = selfSignedKeyFile
-		authConfig.ShibbolethConfig.RancherAPIHost = GetRancherAPIHost()
+	if authConfig.Enabled && strings.EqualFold(authConfig.Provider, "oidcconfig") {
+		settings, err := readCommonSettings([]string{
+			localRecoveryEnabledSetting,
+			localRecoveryVerifiedAtSetting,
+			localRecoveryMFAReadySetting,
+		})
+		if err != nil {
+			return errors.Wrap(err, "UpdateConfig: Could not verify local administrator recovery")
+		}
+		if !localRecoveryReady(settings, time.Now()) {
+			return fmt.Errorf("verify an active local system-administrator account within five minutes before activating OpenID Connect")
+		}
+	}
+	if err := prepareProviderConfig(&authConfig); err != nil {
+		return err
 	}
 
 	newProvider, err := initProviderWithConfig(&authConfig)
@@ -578,7 +622,24 @@ func UpdateConfig(authConfig model.AuthConfig) error {
 	return nil
 }
 
-//UpgradeSettings upgrades the existing provider specific auth settings to the new generic settings used by this service
+func localRecoveryReady(settings map[string]string, now time.Time) bool {
+	if !strings.EqualFold(settings[localRecoveryEnabledSetting], "true") {
+		return false
+	}
+	if !strings.EqualFold(settings[localRecoveryMFAReadySetting], "true") {
+		return false
+	}
+	verifiedAt, err := strconv.ParseInt(
+		strings.TrimSpace(settings[localRecoveryVerifiedAtSetting]), 10, 64)
+	if err != nil || verifiedAt <= 0 {
+		return false
+	}
+	age := now.UnixMilli() - verifiedAt
+	return age >= -time.Minute.Milliseconds() &&
+		age <= localRecoveryVerificationMaxAge.Milliseconds()
+}
+
+// UpgradeSettings upgrades the existing provider specific auth settings to the new generic settings used by this service
 func UpgradeSettings() error {
 	//read the current provider
 	var settings []string
@@ -642,7 +703,7 @@ func UpgradeCase() error {
 	// check if GenericObject with key="auth.config" exists
 	filters := make(map[string]interface{})
 	filters["key"] = "auth.config"
-	authColl, err := RancherClient.GenericObject.List(&client.ListOpts{
+	authColl, err := PlatformClient.GenericObject.List(&client.ListOpts{
 		Filters: filters,
 	})
 	if err != nil {
@@ -695,7 +756,7 @@ func UpgradeCase() error {
 		// GO doesn't exist, so first load the config struct, then get providerSettings for enabled provider
 		providerNameInDb := dbSettings[providerNameSetting]
 		if !providers.IsProviderSupported(providerNameInDb) {
-			log.Debug("Auth provider not supported by rancher-auth-service")
+			log.Debug("Auth provider not supported by authentication-service")
 			return nil
 		}
 		config.Provider = providerNameInDb
@@ -727,7 +788,7 @@ func UpgradeCase() error {
 	return nil
 }
 
-//GetConfig gets the config from DB, gathers the list of settings to read from DB
+// GetConfig gets the config from DB, gathers the list of settings to read from DB
 func GetConfig(accessToken string, listOnly bool) (model.AuthConfig, error) {
 	var config model.AuthConfig
 	var settings []string
@@ -780,11 +841,13 @@ func GetConfig(accessToken string, listOnly bool) (model.AuthConfig, error) {
 		config.Enabled = false
 	}
 
-	providerNameInDb := dbSettings[providerNameSetting]
+	config.Provider = resolveConfiguredProvider(
+		dbSettings[providerSetting],
+		dbSettings[providerNameSetting],
+	)
 
-	if providerNameInDb != "" {
-		if providers.IsProviderSupported(providerNameInDb) {
-			config.Provider = providerNameInDb
+	if config.Provider != "" {
+		if providers.IsProviderSupported(config.Provider) {
 			//add the provider specific config
 			newProvider, err := providers.GetProvider(config.Provider)
 			if err != nil {
@@ -817,13 +880,23 @@ func GetConfig(accessToken string, listOnly bool) (model.AuthConfig, error) {
 			}
 			newProvider.AddProviderConfig(&config, providerSettings)
 		}
-	} else {
-		config.Provider = dbSettings[providerSetting]
 	}
 	return config, nil
 }
 
-//Reload will reload the config from DB and reinit the provider
+// resolveConfiguredProvider treats the active platform provider as canonical.
+// providerNameSetting is retained only as a compatibility fallback for legacy
+// databases that did not populate providerSetting. This prevents a remembered
+// external provider from being reloaded after the platform has returned to
+// local authentication.
+func resolveConfiguredProvider(activeProvider string, rememberedProvider string) string {
+	if activeProvider != "" {
+		return activeProvider
+	}
+	return rememberedProvider
+}
+
+// Reload will reload the config from DB and reinit the provider
 func Reload(fromUpdate bool) (bool, error) {
 	//put msg on channel, so that any other request can wait
 	select {
@@ -831,24 +904,32 @@ func Reload(fromUpdate bool) (bool, error) {
 		log.Debugf("Reload config is called fromUpdate %v", fromUpdate)
 		//read config from db
 		authConfig, err := GetConfig("", false)
+		if err != nil {
+			<-*refreshReqChannel
+			return false, err
+		}
 
 		//check if the auth is enabled, if yes then load the provider.
 		if authConfig.Provider == "" {
 			log.Info("No Auth provider configured")
+			provider = nil
+			SamlServiceProvider = nil
+			authConfigInMemory = authConfig
 			<-*refreshReqChannel
 			return false, nil
 		}
 		if !providers.IsProviderSupported(authConfig.Provider) {
-			log.Debug("Auth provider not supported by rancher-auth-service")
+			log.Debug("Auth provider not supported by authentication-service")
+			provider = nil
+			SamlServiceProvider = nil
+			authConfigInMemory = authConfig
 			<-*refreshReqChannel
 			return false, nil
 		}
 
-		if authConfig.Provider == "shibbolethconfig" {
-			authConfig.ShibbolethConfig.IDPMetadataFilePath = IDPMetadataFile
-			authConfig.ShibbolethConfig.SPSelfSignedCertFilePath = selfSignedCertFile
-			authConfig.ShibbolethConfig.SPSelfSignedKeyFilePath = selfSignedKeyFile
-			authConfig.ShibbolethConfig.RancherAPIHost = GetRancherAPIHost()
+		if err := prepareProviderConfig(&authConfig); err != nil {
+			<-*refreshReqChannel
+			return false, err
 		}
 
 		log.Infof("Auth provider configured %v", authConfig.Provider)
@@ -880,7 +961,7 @@ func Reload(fromUpdate bool) (bool, error) {
 	}
 }
 
-//CreateToken will authenticate with provider and create a jwt token
+// CreateToken will authenticate with provider and create a jwt token
 func CreateToken(json map[string]string) (model.Token, int, error) {
 	if provider != nil {
 		token, status, err := provider.GenerateToken(json)
@@ -890,6 +971,10 @@ func CreateToken(json map[string]string) (model.Token, int, error) {
 
 		payload := make(map[string]interface{})
 		payload["access_token"] = token.AccessToken
+		payload["authentication_methods"] = token.AuthenticationMethods
+		payload["authentication_context"] = token.AuthenticationContext
+		payload["authenticated_at"] = token.AuthenticatedAt
+		payload["authentication_issuer"] = token.AuthenticationIssuer
 
 		jwt, err := util.CreateTokenWithPayload(payload, privateKey)
 		if err != nil {
@@ -902,7 +987,30 @@ func CreateToken(json map[string]string) (model.Token, int, error) {
 	return model.Token{}, 0, fmt.Errorf("No auth provider configured")
 }
 
-//RefreshToken will refresh a jwt token
+// ValidatePlatformToken verifies that a browser handoff contains a token
+// signed by this service and not another RS256 token type, such as an
+// administrator identity proof.
+func ValidatePlatformToken(value string) error {
+	if publicKey == nil {
+		return fmt.Errorf("platform token validation key is not configured")
+	}
+	token, err := jwt.Parse(value, func(token *jwt.Token) (interface{}, error) {
+		return publicKey, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+	if err != nil || !token.Valid {
+		return fmt.Errorf("platform token signature is invalid")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return fmt.Errorf("platform token claims are invalid")
+	}
+	if _, found := claims["access_token"].(string); !found {
+		return fmt.Errorf("platform token type is invalid")
+	}
+	return nil
+}
+
+// RefreshToken will refresh a jwt token
 func RefreshToken(json map[string]string) (model.Token, int, error) {
 	if provider != nil {
 		token, status, err := provider.RefreshToken(json)
@@ -931,7 +1039,7 @@ func identitiesToIDList(identities []client.Identity) []string {
 	return idList
 }
 
-//GetIdentities will list all identities for token
+// GetIdentities will list all identities for token
 func GetIdentities(accessToken string) ([]client.Identity, error) {
 	if provider != nil {
 		return provider.GetIdentities(accessToken)
@@ -939,7 +1047,7 @@ func GetIdentities(accessToken string) ([]client.Identity, error) {
 	return []client.Identity{}, fmt.Errorf("No auth provider configured")
 }
 
-//GetIdentity will list all identities for given filters
+// GetIdentity will list all identities for given filters
 func GetIdentity(externalID string, externalIDType string, accessToken string) (client.Identity, error) {
 	if provider != nil {
 		return provider.GetIdentity(externalID, externalIDType, accessToken)
@@ -947,7 +1055,7 @@ func GetIdentity(externalID string, externalIDType string, accessToken string) (
 	return client.Identity{}, fmt.Errorf("No auth provider configured")
 }
 
-//SearchIdentities will list all identities for given filters
+// SearchIdentities will list all identities for given filters
 func SearchIdentities(name string, exactMatch bool, accessToken string) ([]client.Identity, error) {
 	if provider != nil {
 		return provider.SearchIdentities(name, exactMatch, accessToken)
@@ -955,15 +1063,15 @@ func SearchIdentities(name string, exactMatch bool, accessToken string) ([]clien
 	return []client.Identity{}, fmt.Errorf("No auth provider configured")
 }
 
-//GetRancherAPIHost reads the api.host setting
-func GetRancherAPIHost() string {
+// GetPlatformAPIHost reads the api.host setting
+func GetPlatformAPIHost() string {
 	var settings []string
 
 	//add the setting
 	settings = append(settings, apiHostSetting)
 	dbSettings, err := readCommonSettings(settings)
 	if err != nil {
-		log.Errorf("getRancherAPIHost: Error reading DB setting %v", err)
+		log.Errorf("GetPlatformAPIHost: error reading database setting %v", err)
 		return "http://localhost:8080"
 	}
 	apiHost := dbSettings[apiHostSetting]
@@ -971,25 +1079,61 @@ func GetRancherAPIHost() string {
 		apiHost = "http://localhost:8080"
 	}
 
-	log.Debugf("getRancherAPIHost() returning %v ", apiHost)
+	log.Debugf("GetPlatformAPIHost() returning %v", apiHost)
 
 	return apiHost
 }
 
-//GetRedirectURL returns the redirect URL for the provider if applicable
+// GetRedirectURL returns the redirect URL for the provider if applicable
 func GetRedirectURL() (map[string]string, error) {
 	response := make(map[string]string)
 	if provider != nil {
 		redirect := provider.GetRedirectURL()
 		response["redirectUrl"] = URLEncoded(redirect)
 		response["provider"] = provider.GetName()
-		log.Debugf("GetRedirectURL: returning response %v", response)
+		if authConfigInMemory.Provider == "oidcconfig" {
+			response["pkceEnabled"] = strconv.FormatBool(authConfigInMemory.OIDCConfig.UsePKCE)
+			response["providerDisplayName"] = authConfigInMemory.OIDCConfig.DisplayName
+			response["callbackUrl"] = strings.TrimRight(authConfigInMemory.OIDCConfig.PlatformAPIHost, "/") + "/login/oidc-auth"
+		}
+		log.Debug("GetRedirectURL returned a provider redirect")
 		return response, nil
 	}
 	return response, fmt.Errorf("No auth provider configured")
 }
 
-//URLEncoded escape url query
+// PrepareProvider validates a proposed provider configuration and returns its
+// authorization URL without changing the active provider or global security
+// setting.
+func PrepareProvider(authConfig model.AuthConfig) (map[string]string, error) {
+	if authConfig.Provider == "" || !providers.IsProviderSupported(authConfig.Provider) {
+		return nil, fmt.Errorf("unsupported authentication provider %q", authConfig.Provider)
+	}
+	if err := prepareProviderConfig(&authConfig); err != nil {
+		return nil, err
+	}
+	newProvider, err := initProviderWithConfig(&authConfig)
+	if err != nil {
+		return nil, err
+	}
+	redirect := newProvider.GetRedirectURL()
+	if redirect == "" {
+		return nil, fmt.Errorf("provider %q does not supply an authorization URL", authConfig.Provider)
+	}
+
+	response := map[string]string{
+		"redirectUrl": URLEncoded(redirect),
+		"provider":    newProvider.GetName(),
+	}
+	if authConfig.Provider == "oidcconfig" {
+		response["pkceEnabled"] = strconv.FormatBool(authConfig.OIDCConfig.UsePKCE)
+		response["providerDisplayName"] = authConfig.OIDCConfig.DisplayName
+		response["callbackUrl"] = strings.TrimRight(authConfig.OIDCConfig.PlatformAPIHost, "/") + "/login/oidc-auth"
+	}
+	return response, nil
+}
+
+// URLEncoded escape url query
 func URLEncoded(str string) string {
 	u, err := url.Parse(str)
 	if err != nil {
@@ -1001,22 +1145,22 @@ func URLEncoded(str string) string {
 	return u.String()
 }
 
-//GetSamlRedirectURL returns the redirect URL for SAML login flow
+// GetSamlRedirectURL returns the redirect URL for SAML login flow
 func GetSamlRedirectURL(redirectBackBase string, redirectBackPath string) string {
 	redirectURL := ""
 	if provider != nil && provider.GetName() == "shibboleth" {
-		rancherAPI := GetRancherAPIHost()
+		platformAPI := GetPlatformAPIHost()
 		redirectURL = redirectBackBase + redirectBackPath
 		if redirectURL == "" {
 			//default to api.host setting
-			redirectURL = rancherAPI + redirectBackPath
+			redirectURL = platformAPI + redirectBackPath
 		}
-		log.Debugf("GetSamlRedirectURL : redirectURL %v ", redirectURL)
+		log.Debug("Built a SAML redirect URL")
 	}
 	return redirectURL
 }
 
-func TestLogin(testAuthConfig model.TestAuthConfig, accessToken string, token string) (int, error) {
+func TestLogin(testAuthConfig model.TestAuthConfig, accessToken string, token string) (model.Token, int, error) {
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -1024,50 +1168,103 @@ func TestLogin(testAuthConfig model.TestAuthConfig, accessToken string, token st
 
 	t := &model.V2Token{}
 	authConfig := testAuthConfig.AuthConfig
+	if err := prepareProviderConfig(&authConfig); err != nil {
+		return model.Token{}, 0, err
+	}
+	testAuthConfig.AuthConfig = authConfig
 	newProvider, err := initProviderWithConfig(&authConfig)
 	if err != nil {
 		log.Errorf("GetProvider: Error initializing the provider %v", err)
-		return 0, err
+		return model.Token{}, 0, err
 	}
 
 	if token != "" {
-		u, err := url.Parse(CattleURL)
+		u, err := url.Parse(PlatformURL)
 		if err != nil {
-			return 0, fmt.Errorf("Error %v in parsing URL for getting token", err)
+			return model.Token{}, 0, fmt.Errorf("Error %v in parsing URL for getting token", err)
 		}
-		getURL := strings.Split(CattleURL, u.Path)[0] + "/v2-beta/token"
+		getURL := strings.Split(PlatformURL, u.Path)[0] + "/v2-beta/token"
 
 		req, err := http.NewRequest("GET", getURL, nil)
 		if err != nil {
-			return 0, fmt.Errorf("Error %v in getting token", err)
+			return model.Token{}, 0, fmt.Errorf("Error %v in getting token", err)
 		}
 		req.Header.Set("Cookie", "token="+token)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			log.Errorf("Received error from get token call: %v", err)
-			return 0, err
+			return model.Token{}, 0, err
 		}
 		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return 0, fmt.Errorf("Error %v in reading response body in getting token", err)
+			return model.Token{}, 0, fmt.Errorf("Error %v in reading response body in getting token", err)
 		}
 		err = json.Unmarshal(body, &t)
 		if err != nil {
-			return 0, fmt.Errorf("Error %v in testlogin", err)
+			return model.Token{}, 0, fmt.Errorf("Error %v in testlogin", err)
 		}
 		if len(t.Data) != 1 {
-			return 0, fmt.Errorf("Error in getting token data")
+			return model.Token{}, 0, fmt.Errorf("Error in getting token data")
 		}
 		originalLogin = t.Data[0].OriginalLogin
 	}
 
 	log.Infof("newProvider %v", newProvider.GetName())
+	if tokenProvider, ok := newProvider.(providers.TokenTestingProvider); ok {
+		testToken, status, err := tokenProvider.TestToken(&testAuthConfig, accessToken, originalLogin)
+		if err != nil {
+			return model.Token{}, status, err
+		}
+		// A provider test proves that the proposed configuration can complete
+		// a real sign-in. It must not create a browser session or expose the
+		// provider access token; the normal /token path creates the platform
+		// session only after the administrator explicitly enables the config.
+		testToken.AccessToken = ""
+		testToken.JwtToken = ""
+		identityProof, err := createIdentityProof(testToken, authConfig.Provider, newProvider.GetUserType())
+		if err != nil {
+			return model.Token{}, 0, errors.Wrap(err, "failed to create the verified identity proof")
+		}
+		testToken.IdentityProof = identityProof
+		return testToken, 0, nil
+	}
 	status, err := newProvider.TestLogin(&testAuthConfig, accessToken, originalLogin)
 	if err != nil {
 		log.Errorf("GetProvider: Error in login %v", err)
-		return status, err
+		return model.Token{}, status, err
 	}
-	return 0, nil
+	return model.Token{}, 0, nil
+}
+
+func createIdentityProof(token model.Token, providerName string, userType string) (string, error) {
+	var user *client.Identity
+	for i := range token.IdentityList {
+		if strings.EqualFold(token.IdentityList[i].ExternalIdType, userType) {
+			user = &token.IdentityList[i]
+			break
+		}
+	}
+	if user == nil || strings.TrimSpace(user.ExternalId) == "" || strings.TrimSpace(user.ExternalIdType) == "" {
+		return "", fmt.Errorf("the provider test did not return a user identity")
+	}
+
+	randomID, err := randomNonce(32)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	payload := map[string]interface{}{
+		"purpose":          "auth-identity-proof",
+		"provider":         providerName,
+		"external_id":      user.ExternalId,
+		"external_id_type": user.ExternalIdType,
+		"name":             user.Name,
+		"login":            user.Login,
+		"iat":              now.Unix(),
+		"exp":              now.Add(5 * time.Minute).Unix(),
+		"jti":              base64.RawURLEncoding.EncodeToString(randomID),
+	}
+	return util.CreateTokenWithPayload(payload, privateKey)
 }
