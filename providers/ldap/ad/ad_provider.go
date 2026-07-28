@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/providers/ldap"
 	"github.com/pkg/errors"
 	v1client "github.com/rancher/go-rancher/client"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/providers/ldap"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -92,12 +92,12 @@ func (a *ADProvider) GetIdentity(distinguishedName string, scope string, accessT
 	return a.LdapClient.GetIdentity(distinguishedName, scope)
 }
 
-//SearchIdentities returns the identity by name
+// SearchIdentities returns the identity by name
 func (a *ADProvider) SearchIdentities(name string, exactMatch bool, accessToken string) ([]client.Identity, error) {
 	return a.LdapClient.SearchIdentities(name, exactMatch)
 }
 
-//GetSettings transforms the provider config to db settings
+// GetSettings transforms the provider config to db settings
 func (a *ADProvider) GetSettings() map[string]string {
 	settings := make(map[string]string)
 
@@ -127,7 +127,7 @@ func (a *ADProvider) GetSettings() map[string]string {
 	return settings
 }
 
-//AddProviderConfig adds the provider config into the generic config using the settings from db
+// AddProviderConfig adds the provider config into the generic config using the settings from db
 func (a *ADProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSettings map[string]string) {
 	ldapConfig := model.LdapConfig{Resource: client.Resource{
 		Type: "ldapconfig",
@@ -178,7 +178,7 @@ func (a *ADProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSet
 	authConfig.LdapConfig = ldapConfig
 }
 
-//GetProviderSettingList returns the provider specific db setting list
+// GetProviderSettingList returns the provider specific db setting list
 func (a *ADProvider) GetProviderSettingList(listOnly bool) []string {
 	var settings []string
 
@@ -208,7 +208,7 @@ func (a *ADProvider) GetProviderSettingList(listOnly bool) []string {
 	return settings
 }
 
-//GetLegacySettings returns the provider specific legacy db settings
+// GetLegacySettings returns the provider specific legacy db settings
 func (a *ADProvider) GetLegacySettings() map[string]string {
 	settings := make(map[string]string)
 	settings["accessModeSetting"] = AccessModeSetting
@@ -216,7 +216,7 @@ func (a *ADProvider) GetLegacySettings() map[string]string {
 	return settings
 }
 
-//GetConfig returns the provider config
+// GetConfig returns the provider config
 func (a *ADProvider) GetConfig() model.AuthConfig {
 	log.Debug("In LDAP getConfig")
 
@@ -231,11 +231,11 @@ func (a *ADProvider) GetConfig() model.AuthConfig {
 		Type: "ldapconfig",
 	}
 
-	log.Debug("In LDAP authConfig %v", authConfig)
+	log.Debug("Loaded LDAP authConfig")
 	return authConfig
 }
 
-//GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
+// GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
 func (a *ADProvider) GetIdentitySeparator() string {
 	return ldap.GetIdentitySeparator()
 }
@@ -252,12 +252,12 @@ func (a *ADProvider) LoadConfig(authConfig *model.AuthConfig) error {
 	return nil
 }
 
-//RefreshToken re-authenticates and generate a new token
+// RefreshToken re-authenticates and generate a new token
 func (a *ADProvider) RefreshToken(json map[string]string) (model.Token, int, error) {
 	return a.LdapClient.RefreshToken(json)
 }
 
-//GetIdentities returns list of user and group identities associated to this token
+// GetIdentities returns list of user and group identities associated to this token
 func (a *ADProvider) GetIdentities(accessToken string) ([]client.Identity, error) {
 	var identities []client.Identity
 	log.Infof("%s IdentityProvider does not support GetIdentities API", Name)
@@ -265,7 +265,7 @@ func (a *ADProvider) GetIdentities(accessToken string) ([]client.Identity, error
 	return identities, nil
 }
 
-//GetRedirectURL returns the provider specific redirect URL used by UI
+// GetRedirectURL returns the provider specific redirect URL used by UI
 func (a *ADProvider) GetRedirectURL() string {
 	return ""
 }

@@ -1,20 +1,35 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-cd $(dirname $0)/..
+cd "$(dirname "$0")/.."
 
 echo Running validation
 
-PACKAGES=". $(find -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u | grep -Ev '(^\.$|.git|.trash-cache|vendor|bin)' | sed -e 's!^!./!' -e 's!$!/...!')"
+PACKAGES=". $(find -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u | grep -Ev '(^\.$|.git|vendor|bin)' | sed -e 's!^!./!' -e 's!$!/...!')"
+EXPECTED_GO_VERSION=go1.26.5
+
+test "$(go env GOVERSION)" = "$EXPECTED_GO_VERSION"
+if [ "$(go env GOHOSTOS)" = "$(go env GOOS)" ]; then
+    test -x bin/authentication-service
+else
+    test -f bin/authentication-service
+fi
+test "$(go version bin/authentication-service | awk '{print $2}')" = \
+    "$EXPECTED_GO_VERSION"
+printf 'Validated Go toolchain and binary version: %s\n' "$EXPECTED_GO_VERSION"
 
 echo Running: go vet
 go vet ${PACKAGES}
-echo Running: golint
-for i in ${PACKAGES}; do
-    if [ -n "$(golint $i | grep -v 'should have comment.*or be unexported' | tee /dev/stderr)" ]; then
-        failed=true
-    fi
-done
-test -z "$failed"
-echo Running: go fmt
-test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"
+printf "%s\n" "Running supported validation: go vet and go fmt."
+echo Running: gofmt
+UNFORMATTED=$(
+    find . \
+        -path './vendor' -prune -o \
+        -path './bin' -prune -o \
+        -name '*.go' -print |
+        xargs gofmt -l
+)
+if [ -n "$UNFORMATTED" ]; then
+    printf '%s\n' "$UNFORMATTED" >&2
+    exit 1
+fi

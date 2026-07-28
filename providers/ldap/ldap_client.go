@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
 	"github.com/pkg/errors"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/ldap.v2"
 )
 
@@ -84,7 +84,7 @@ func (l *LClient) newConn() (*ldap.Conn, error) {
 	searchConfig := l.SearchConfig
 	ldap.DefaultTimeout = time.Duration(l.Config.ConnectionTimeout) * time.Millisecond
 	if l.Config.TLS {
-		tlsConfig = &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: l.Config.Server}
+		tlsConfig = &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: l.Config.Server, MinVersion: tls.VersionTLS12}
 		lConn, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", searchConfig.Server, searchConfig.Port), tlsConfig)
 		if err != nil {
 			return nil, fmt.Errorf("Error creating ssl connection: %v", err)
@@ -572,7 +572,7 @@ func GetIdentitySeparator() string {
 	return "#"
 }
 
-//GetUserIdentity returns the "user" from the list of identities
+// GetUserIdentity returns the "user" from the list of identities
 func GetUserIdentity(identities []client.Identity, userType string) (client.Identity, bool) {
 	for _, identity := range identities {
 		if identity.ExternalIdType == userType {
@@ -582,7 +582,7 @@ func GetUserIdentity(identities []client.Identity, userType string) (client.Iden
 	return client.Identity{}, false
 }
 
-//SearchIdentities returns the identity by name
+// SearchIdentities returns the identity by name
 func (l *LClient) SearchIdentities(name string, exactMatch bool) ([]client.Identity, error) {
 	c := l.ConstantsConfig
 	identities := []client.Identity{}
@@ -714,7 +714,7 @@ func (l *LClient) TestLogin(testAuthConfig *model.TestAuthConfig, accessToken st
 	ldap.DefaultTimeout = time.Duration(testAuthConfig.AuthConfig.LdapConfig.ConnectionTimeout) * time.Millisecond
 	log.Debug("TestLogin: Now creating Ldap connection")
 	if testAuthConfig.AuthConfig.LdapConfig.TLS {
-		tlsConfig := &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: ldapServer}
+		tlsConfig := &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: ldapServer, MinVersion: tls.VersionTLS12}
 		lConn, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort), tlsConfig)
 		if err != nil {
 			return status, fmt.Errorf("Error creating ssl connection: %v", err)
