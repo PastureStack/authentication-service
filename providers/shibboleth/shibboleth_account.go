@@ -4,7 +4,7 @@ import (
 	"github.com/rancher/go-rancher/v2"
 )
 
-//Account defines properties an account details shibboleth IDP provides. Account can also be created for a group entity.
+// Account defines properties an account details shibboleth IDP provides. Account can also be created for a group entity.
 type Account struct {
 	UID         string `json:"uid,omitempty"`         //objectId
 	DisplayName string `json:"displayname,omitempty"` //name

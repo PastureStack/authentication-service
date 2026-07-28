@@ -1,0 +1,22 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/PastureStack/authentication-service/security/openvex/2026-08-07",
+  "author": "PastureStack contributors",
+  "timestamp": "2026-08-07T23:59:00+08:00",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "GO-2026-5932"
+      },
+      "products": [
+        {
+          "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "GO-2026-5932 applies to the unmaintained golang.org/x/crypto/openpgp package. The committed and release dependency graphs contain only golang.org/x/crypto/md4 and golang.org/x/crypto/ripemd160; openpgp is neither imported nor compiled into the product. Linux govulncheck source analysis reports zero reachable and zero imported-package vulnerabilities."
+    }
+  ]
+}

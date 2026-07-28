@@ -1,0 +1,308 @@
+name: Security release gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'verification/authentication-service-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authentication-service-security-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-test-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DAPPER_IMAGE: pasturestack/authentication-service-dapper:${{ github.sha }}
+      TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+      VERSION_OVERRIDE: v0.4.35
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-revision.txt
+          : > evidence/source-status.txt
+          sha256sum \
+            ubuntu-apt.lock \
+            Dockerfile.dapper \
+            go.mod \
+            go.sum \
+            vendor/modules.txt \
+            > evidence/source-locks.sha256
+
+      - name: Build, test, validate, and package twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg DAPPER_HOST_ARCH=amd64 \
+            --tag "$DAPPER_IMAGE" \
+            --file Dockerfile.dapper \
+            .
+
+          source_epoch="$(git show -s --format=%ct HEAD)"
+          source_path="$GITHUB_WORKSPACE"
+          run_ci() {
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              --volume "${source_path}:/go/src/github.com/PastureStack/authentication-service" \
+              --env ARCH=amd64 \
+              --env "GOCACHE=/tmp/go-build-cache-${GITHUB_RUN_ID}" \
+              --env "XDG_CONFIG_HOME=/tmp/go-config-${GITHUB_RUN_ID}" \
+              --env "GIT_CONFIG_GLOBAL=/tmp/gitconfig-${GITHUB_RUN_ID}" \
+              --env "VERSION_OVERRIDE=${VERSION_OVERRIDE}" \
+              --env "SOURCE_DATE_EPOCH=${source_epoch}" \
+              "$DAPPER_IMAGE" ci
+          }
+
+          run_ci
+          artifact="dist/artifacts/authentication-service-0.4.35-linux-amd64.tar.xz"
+          test -s "$artifact"
+          cp "$artifact" /tmp/authentication-service-first.tar.xz
+          rm -rf bin dist
+          run_ci
+          cmp /tmp/authentication-service-first.tar.xz "$artifact"
+
+          mkdir -p evidence/product
+          tar -xJf "$artifact" -C evidence/product
+          test -x evidence/product/authentication-service
+          test "$(find evidence/product -maxdepth 1 -type f | wc -l)" -eq 1
+          evidence/product/authentication-service --version | grep -F '0.4.35' >/dev/null
+          sha256sum "$artifact" > evidence/authentication-service.tar.xz.sha256
+          docker run --rm --entrypoint go \
+            --volume "$PWD:/work:ro" \
+            "$DAPPER_IMAGE" \
+            version -m /work/evidence/product/authentication-service \
+            > evidence/product-go-version.txt
+
+      - name: Record resolved build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker inspect "$DAPPER_IMAGE" > evidence/dapper-image-inspect.json
+          docker run --rm --entrypoint sh "$DAPPER_IMAGE" -lc \
+            "printf 'package\\tversion\\n'; dpkg-query -W -f='\${binary:Package}\\t\${Version}\\n' | LC_ALL=C sort" \
+            > evidence/dapper-dpkg.tsv
+          {
+            printf 'module\tversion\n'
+            awk '$1 == "#" && $2 != "=>" && $3 != "=>" { print $2 "\t" $3 }' \
+              vendor/modules.txt | LC_ALL=C sort -u
+          } > evidence/go-modules.txt
+
+      - name: Scan source, product, and Dapper image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$TRIVY_IMAGE"
+          trivy_cache="$RUNNER_TEMP/trivy-cache"
+          mkdir -p "$trivy_cache"
+          source_tree="$(mktemp -d)"
+          trap 'rm -rf "$source_tree"' EXIT
+          git archive --format=tar HEAD | tar -xf - -C "$source_tree"
+
+          docker run --rm \
+            -v "$source_tree:/scan:ro" \
+            -v "$PWD/evidence:/evidence" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" fs \
+            --offline-scan --scanners vuln,secret --format json \
+            --output /evidence/source-security-raw.json /scan
+          docker run --rm \
+            -v "$source_tree:/scan:ro" \
+            -v "$PWD/evidence:/evidence" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" fs \
+            --offline-scan --scanners vuln,secret \
+            --vex /scan/security/openvex.json --show-suppressed \
+            --format json --output /evidence/source-security-applicable.json \
+            /scan
+          docker run --rm \
+            -v "$PWD/evidence:/evidence" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" rootfs \
+            --offline-scan --scanners vuln,secret --format json \
+            --output /evidence/product-security-raw.json /evidence/product
+          docker run --rm \
+            -v "$PWD/evidence:/evidence" \
+            -v "$PWD/security:/security:ro" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" rootfs \
+            --offline-scan --scanners vuln,secret \
+            --vex /security/openvex.json --show-suppressed \
+            --format json --output /evidence/product-security-applicable.json \
+            /evidence/product
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/work" -w /work \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image \
+            --offline-scan --scanners vuln,secret --format json \
+            --output /work/evidence/dapper-image-raw.json "$DAPPER_IMAGE"
+
+          if test -f security/dapper.openvex.json; then
+            jq -r '
+              .Results[]?.Vulnerabilities[]?
+              | select(.Severity == "CRITICAL" or .Severity == "HIGH")
+              | [.VulnerabilityID, .PkgIdentifier.PURL]
+              | @tsv
+            ' evidence/dapper-image-raw.json | LC_ALL=C sort -u \
+              > /tmp/dapper-critical-high.tsv
+            jq -r '
+              .statements[]?
+              | select(
+                  .status == "not_affected"
+                  and .justification == "vulnerable_code_not_present"
+                )
+              | .vulnerability.name as $id
+              | .products[]?
+              | [$id, .["@id"]]
+              | @tsv
+            ' security/dapper.openvex.json | LC_ALL=C sort -u \
+              > /tmp/dapper-vex.tsv
+            test -s /tmp/dapper-critical-high.tsv
+            diff -u /tmp/dapper-critical-high.tsv /tmp/dapper-vex.tsv
+            test "$(jq '.statements | length' security/dapper.openvex.json)" \
+              -eq "$(wc -l < /tmp/dapper-vex.tsv)"
+            jq -e '
+              all(
+                .statements[];
+                .status == "not_affected"
+                and .justification == "vulnerable_code_not_present"
+                and ((.impact_statement | type) == "string")
+                and ((.impact_statement | length) > 0)
+              )
+            ' security/dapper.openvex.json >/dev/null
+            grep -F $'build\tCGO_ENABLED=0' evidence/product-go-version.txt >/dev/null
+            if grep -Eq '^linux-(image|modules)([-:]|[[:space:]])' \
+              evidence/dapper-dpkg.tsv; then
+              printf 'Unexpected Linux kernel runtime package in Dapper image\n' >&2
+              exit 1
+            fi
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD:/work" -w /work \
+              -v "$trivy_cache:/root/.cache/trivy" \
+              "$TRIVY_IMAGE" image \
+              --offline-scan --scanners vuln,secret \
+              --vex /work/security/dapper.openvex.json --show-suppressed \
+              --format json --output /work/evidence/dapper-image-applicable.json \
+              "$DAPPER_IMAGE"
+          else
+            cp evidence/dapper-image-raw.json evidence/dapper-image-applicable.json
+          fi
+
+          docker run --rm \
+            -v "$source_tree:/scan:ro" \
+            -v "$PWD/evidence:/evidence" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" fs \
+            --offline-scan --format cyclonedx \
+            --output /evidence/source.cdx.json /scan
+          docker run --rm \
+            -v "$PWD/evidence:/evidence" \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" rootfs \
+            --offline-scan --format cyclonedx \
+            --output /evidence/product.cdx.json /evidence/product
+
+          rm -rf "$source_tree"
+          trap - EXIT
+
+      - name: Summarize security evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          count() {
+            local report=$1
+            local query=$2
+            jq "$query" "$report" 2>/dev/null || printf 'missing\n'
+          }
+          source_secrets=$(count evidence/source-security-raw.json '[.Results[]?.Secrets[]?] | length')
+          source_raw_critical=$(count evidence/source-security-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
+          source_raw_high=$(count evidence/source-security-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
+          source_applicable_critical=$(count evidence/source-security-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" and .Status != "not_affected")] | length')
+          source_applicable_high=$(count evidence/source-security-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" and .Status != "not_affected")] | length')
+          product_secrets=$(count evidence/product-security-raw.json '[.Results[]?.Secrets[]?] | length')
+          product_raw_critical=$(count evidence/product-security-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
+          product_raw_high=$(count evidence/product-security-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
+          product_applicable_critical=$(count evidence/product-security-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" and .Status != "not_affected")] | length')
+          product_applicable_high=$(count evidence/product-security-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" and .Status != "not_affected")] | length')
+          dapper_raw_critical=$(count evidence/dapper-image-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
+          dapper_raw_high=$(count evidence/dapper-image-raw.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
+          dapper_applicable_critical=$(count evidence/dapper-image-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" and .Status != "not_affected")] | length')
+          dapper_applicable_high=$(count evidence/dapper-image-applicable.json '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" and .Status != "not_affected")] | length')
+          dapper_secrets=$(count evidence/dapper-image-applicable.json '[.Results[]?.Secrets[]?] | length')
+          {
+            printf 'source_secrets=%s\n' "$source_secrets"
+            printf 'source_raw_critical=%s\n' "$source_raw_critical"
+            printf 'source_raw_high=%s\n' "$source_raw_high"
+            printf 'source_applicable_critical=%s\n' "$source_applicable_critical"
+            printf 'source_applicable_high=%s\n' "$source_applicable_high"
+            printf 'product_secrets=%s\n' "$product_secrets"
+            printf 'product_raw_critical=%s\n' "$product_raw_critical"
+            printf 'product_raw_high=%s\n' "$product_raw_high"
+            printf 'product_applicable_critical=%s\n' "$product_applicable_critical"
+            printf 'product_applicable_high=%s\n' "$product_applicable_high"
+            printf 'dapper_raw_critical=%s\n' "$dapper_raw_critical"
+            printf 'dapper_raw_high=%s\n' "$dapper_raw_high"
+            printf 'dapper_applicable_critical=%s\n' "$dapper_applicable_critical"
+            printf 'dapper_applicable_high=%s\n' "$dapper_applicable_high"
+            printf 'dapper_secrets=%s\n' "$dapper_secrets"
+          } | tee evidence/security-summary.txt
+
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: authentication-service-security-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce zero applicable Critical or High findings
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s evidence/security-summary.txt
+          source evidence/security-summary.txt
+          for value in \
+            "$source_secrets" \
+            "$source_applicable_critical" \
+            "$source_applicable_high" \
+            "$product_secrets" \
+            "$product_applicable_critical" \
+            "$product_applicable_high" \
+            "$dapper_applicable_critical" \
+            "$dapper_applicable_high" \
+            "$dapper_secrets"; do
+            case "$value" in
+              ''|*[!0-9]*) printf 'Incomplete security evidence: %s\n' "$value" >&2; exit 1 ;;
+            esac
+            test "$value" -eq 0
+          done
+
+      - name: Clean runner resources
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker rm -f $(docker ps -aq --filter ancestor="$DAPPER_IMAGE") 2>/dev/null
+          docker image rm -f "$DAPPER_IMAGE" "$TRIVY_IMAGE" 2>/dev/null
+          docker builder prune --all --force >/dev/null 2>&1
+          rm -rf bin dist evidence/product

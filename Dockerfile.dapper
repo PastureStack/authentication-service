@@ -1,33 +1,87 @@
-FROM ubuntu:16.04
-# FROM arm=armhf/ubuntu:16.04
+FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03
 
-ARG DAPPER_HOST_ARCH
+COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
+ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb /tmp/ca-certificates.deb
+
+ARG DAPPER_HOST_ARCH=amd64
+ARG GO_VERSION=1.26.5
+ARG GO_LINUX_AMD64_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_LINUX_ARM64_SHA256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+
+ENV DEBIAN_FRONTEND=noninteractive
 ENV HOST_ARCH=${DAPPER_HOST_ARCH} ARCH=${DAPPER_HOST_ARCH}
 
-RUN apt-get update && apt-get install -y pkg-config
+LABEL org.opencontainers.image.source="https://github.com/PastureStack/authentication-service" \
+      org.opencontainers.image.description="PastureStack Authentication Service build environment." \
+      org.opencontainers.image.licenses="Apache-2.0"
 
-RUN apt-get update && \
-    apt-get install -y gcc make ca-certificates git wget curl vim less file && \
+RUN set -eux; \
+    . /licenses/ubuntu-apt.lock; \
+    rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; \
+    rm -rf /tmp/ca-bootstrap; \
+    mkdir -p /tmp/ca-bootstrap /etc/ssl/certs; \
+    dpkg-deb --extract /tmp/ca-certificates.deb /tmp/ca-bootstrap; \
+    find /tmp/ca-bootstrap/usr/share/ca-certificates -type f -name '*.crt' \
+        | LC_ALL=C sort \
+        | while IFS= read -r certificate; do sed -e '$a\' "${certificate}"; done \
+        > /etc/ssl/certs/ca-certificates.crt; \
+    test -s /etc/ssl/certs/ca-certificates.crt; \
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
+        "${UBUNTU_APT_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-snapshot.sources; \
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\nAcquire::https::Verify-Peer "true";\nAcquire::https::Verify-Host "true";\nAcquire::AllowInsecureRepositories "false";\nAPT::Get::AllowUnauthenticated "false";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash="${UBUNTU_APT_BASH_VERSION}" \
+        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
+        curl="${UBUNTU_APT_CURL_VERSION}" \
+        file="${UBUNTU_APT_FILE_VERSION}" \
+        gcc="${UBUNTU_APT_GCC_VERSION}" \
+        git="${UBUNTU_APT_GIT_VERSION}" \
+        libc6-dev="${UBUNTU_APT_LIBC6_DEV_VERSION}" \
+        make="${UBUNTU_APT_MAKE_VERSION}" \
+        tar="${UBUNTU_APT_TAR_VERSION}" \
+        xz-utils="${UBUNTU_APT_XZ_UTILS_VERSION}"; \
+    { \
+        printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; \
+        dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; \
+    } > /licenses/AUTHENTICATION-SERVICE-UBUNTU-APT-PACKAGES.tsv; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/bin/pebble; \
     rm -f /bin/sh && ln -s /bin/bash /bin/sh
 
-ENV GOLANG_ARCH_amd64=amd64 GOLANG_ARCH_arm=armv6l GOLANG_ARCH=GOLANG_ARCH_${ARCH} \
-    GOPATH=/go PATH=/go/bin:/usr/local/go/bin:${PATH} SHELL=/bin/bash
+ENV GOPATH=/go \
+    PATH=/go/bin:/usr/local/go/bin:${PATH} \
+    SHELL=/bin/bash \
+    GO111MODULE=on \
+    GOPROXY=https://proxy.golang.org,direct \
+    GOSUMDB=sum.golang.org \
+    GOCACHE=/tmp/go-build-cache \
+    GOTELEMETRY=off \
+    XDG_CONFIG_HOME=/tmp/go-config \
+    GIT_CONFIG_GLOBAL=/tmp/gitconfig
 
-RUN wget -O - https://storage.googleapis.com/golang/go1.10.1.linux-${!GOLANG_ARCH}.tar.gz | tar -xzf - -C /usr/local && \
-    go get github.com/rancher/trash && go get github.com/golang/lint/golint
+RUN case "${DAPPER_HOST_ARCH}" in \
+        amd64) go_arch=amd64; go_sha="${GO_LINUX_AMD64_SHA256}" ;; \
+        arm64) go_arch=arm64; go_sha="${GO_LINUX_ARM64_SHA256}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" && \
+    echo "${go_sha}  /tmp/go.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/go.tgz -C /usr/local && \
+    rm -f /tmp/go.tgz && \
+    go version
 
-ENV DOCKER_URL_amd64=https://get.docker.com/builds/Linux/x86_64/docker-1.10.3 \
-    DOCKER_URL_arm=https://github.com/rancher/docker/releases/download/v1.10.3-ros1/docker-1.10.3_arm \
-    DOCKER_URL=DOCKER_URL_${ARCH}
-
-RUN wget -O - ${!DOCKER_URL} > /usr/bin/docker && chmod +x /usr/bin/docker
-
-ENV DAPPER_SOURCE /go/src/github.com/rancher/rancher-auth-service/
-ENV DAPPER_OUTPUT ./bin ./dist
-ENV DAPPER_DOCKER_SOCKET true
-ENV TRASH_CACHE ${DAPPER_SOURCE}/.trash-cache
-ENV HOME ${DAPPER_SOURCE}
+ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/authentication-service/
+ENV DAPPER_OUTPUT="./bin ./dist"
+ENV HOME=/tmp
 WORKDIR ${DAPPER_SOURCE}
+
+RUN git config --system --add safe.directory ${DAPPER_SOURCE} && \
+    git config --system --add safe.directory /go/src/github.com/PastureStack/authentication-service && \
+    mkdir -p /go /tmp/go-build-cache /tmp/go-config && \
+    chown -R 65532:65532 /go /tmp/go-build-cache /tmp/go-config
+
+USER 65532:65532
 
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]

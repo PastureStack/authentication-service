@@ -1,0 +1,607 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/PastureStack/authentication-service/security/openvex/dapper/2026-08-09",
+  "author": "PastureStack contributors",
+  "timestamp": "2026-08-09T05:14:44+08:00",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53215"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53260"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40190"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-46331"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52908"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52909"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52910"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52924"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53145"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53148"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53151"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53153"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53159"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53170"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53171"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53172"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53173"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53175"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53176"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53178"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53182"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53183"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53185"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53186"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53192"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53193"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53196"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53198"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53212"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53224"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53235"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53239"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53240"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53250"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53254"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53256"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53259"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53262"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53264"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53266"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53269"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53270"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53275"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53276"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53359"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64531"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "linux-libc-dev is present only in the ephemeral Dapper builder as user-space API headers pulled by libc6-dev for GCC and Go race tests. The builder contains no Linux kernel image or module package and is never shipped or run as the product. The shipped archive contains one statically linked, CGO-disabled Go binary whose raw Trivy scan reports zero Critical or High findings."
+    }
+  ]
+}

@@ -1,17 +1,15 @@
 package github
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/rancher/rancher-auth-service/model"
+	"github.com/PastureStack/authentication-service/model"
+	log "github.com/sirupsen/logrus"
 	"github.com/tomnomnom/linkheader"
 )
 
@@ -20,9 +18,10 @@ const (
 	githubAccessToken     = Name + "access_token"
 	githubAPI             = "https://api.github.com"
 	githubDefaultHostName = "https://github.com"
+	maxGithubResponseSize = 4 << 20
 )
 
-//GClient implements a httpclient for github
+// GClient implements a httpclient for github
 type GClient struct {
 	httpClient *http.Client
 	config     *model.GithubConfig
@@ -45,7 +44,7 @@ func (g *GClient) getAccessToken(code string) (string, error) {
 
 	// Decode the response
 	var respMap map[string]interface{}
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := readGithubResponse(resp.Body)
 	if err != nil {
 		log.Errorf("Github getAccessToken: received error reading response body, err: %v", err)
 		return "", err
@@ -57,14 +56,13 @@ func (g *GClient) getAccessToken(code string) (string, error) {
 	}
 
 	if respMap["error"] != nil {
-		desc := respMap["error_description"]
-		log.Errorf("Received Error from github %v, description from github %v", respMap["error"], desc)
-		return "", fmt.Errorf("Received Error from github %v, description from github %v", respMap["error"], desc)
+		log.Error("GitHub rejected the OAuth token request")
+		return "", fmt.Errorf("GitHub rejected the OAuth token request")
 	}
 
 	acessToken, ok := respMap["access_token"].(string)
 	if !ok {
-		return "", fmt.Errorf("Received Error reading accessToken from response %v", respMap)
+		return "", fmt.Errorf("GitHub token response is missing an access token")
 	}
 	return acessToken, nil
 }
@@ -80,7 +78,7 @@ func (g *GClient) getGithubUser(githubAccessToken string) (Account, error) {
 	defer resp.Body.Close()
 	var githubAcct Account
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := readGithubResponse(resp.Body)
 	if err != nil {
 		log.Errorf("Github getGithubUser: error reading response, err: %v", err)
 		return Account{}, err
@@ -106,7 +104,7 @@ func (g *GClient) getGithubOrgs(githubAccessToken string) ([]Account, error) {
 	for _, response := range responses {
 		defer response.Body.Close()
 		var orgObjs []Account
-		b, err := ioutil.ReadAll(response.Body)
+		b, err := readGithubResponse(response.Body)
 		if err != nil {
 			log.Errorf("Github getGithubOrgs: error reading the response from github, err: %v", err)
 			return orgs, err
@@ -149,7 +147,7 @@ func (g *GClient) getGithubTeams(githubAccessToken string) ([]Account, error) {
 
 func (g *GClient) getTeamInfo(response *http.Response) ([]Account, error) {
 	var teams []Account
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := readGithubResponse(response.Body)
 	if err != nil {
 		log.Errorf("Github getTeamInfo: error reading the response from github, err: %v", err)
 		return teams, err
@@ -177,7 +175,7 @@ func (g *GClient) getTeamByID(id string, githubAccessToken string) (Account, err
 		log.Errorf("Github getTeamByID: GET url %v received error from github, err: %v", url, err)
 		return teamAcct, err
 	}
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := readGithubResponse(response.Body)
 	if err != nil {
 		log.Errorf("Github getTeamByID: error reading the response from github, err: %v", err)
 		return teamAcct, err
@@ -247,7 +245,7 @@ func (g *GClient) getGithubUserByName(username string, githubAccessToken string)
 	defer resp.Body.Close()
 	var githubAcct Account
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := readGithubResponse(resp.Body)
 	if err != nil {
 		log.Errorf("Github getGithubUserByName: error reading response, err: %v", err)
 		return Account{}, err
@@ -274,7 +272,7 @@ func (g *GClient) getGithubOrgByName(org string, githubAccessToken string) (Acco
 	defer resp.Body.Close()
 	var githubAcct Account
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := readGithubResponse(resp.Body)
 	if err != nil {
 		log.Errorf("Github getGithubOrgByName: error reading response, err: %v", err)
 		return Account{}, err
@@ -300,7 +298,7 @@ func (g *GClient) getUserOrgByID(id string, githubAccessToken string) (Account, 
 	defer resp.Body.Close()
 	var githubAcct Account
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := readGithubResponse(resp.Body)
 	if err != nil {
 		log.Errorf("Github getUserOrgById: error reading response, err: %v", err)
 		return Account{}, err
@@ -336,7 +334,7 @@ func (g *GithubClient) searchGithub(githubAccessToken string, url string) []map[
 
 */
 
-//URLEncoded encodes the string
+// URLEncoded encodes the string
 func URLEncoded(str string) string {
 	u, err := url.Parse(str)
 	if err != nil {
@@ -349,7 +347,7 @@ func URLEncoded(str string) string {
 func (g *GClient) postToGithub(url string, form url.Values) (*http.Response, error) {
 	req, err := http.NewRequest("POST", url, strings.NewReader(form.Encode()))
 	if err != nil {
-		log.Error(err)
+		return nil, fmt.Errorf("could not create GitHub token request: %w", err)
 	}
 	req.PostForm = form
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
@@ -364,10 +362,8 @@ func (g *GClient) postToGithub(url string, form url.Values) (*http.Response, err
 	case 200:
 	case 201:
 	default:
-		var body bytes.Buffer
-		io.Copy(&body, resp.Body)
-		return resp, fmt.Errorf("Request failed, got status code: %d. Response: %s",
-			resp.StatusCode, body.Bytes())
+		resp.Body.Close()
+		return nil, fmt.Errorf("GitHub request failed with HTTP %d", resp.StatusCode)
 	}
 	return resp, nil
 }
@@ -375,7 +371,7 @@ func (g *GClient) postToGithub(url string, form url.Values) (*http.Response, err
 func (g *GClient) getFromGithub(githubAccessToken string, url string) (*http.Response, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Error(err)
+		return nil, fmt.Errorf("could not create GitHub API request: %w", err)
 	}
 	req.Header.Add("Authorization", "token "+githubAccessToken)
 	req.Header.Add("Accept", "application/json")
@@ -390,12 +386,21 @@ func (g *GClient) getFromGithub(githubAccessToken string, url string) (*http.Res
 	case 200:
 	case 201:
 	default:
-		var body bytes.Buffer
-		io.Copy(&body, resp.Body)
-		return resp, fmt.Errorf("Request failed, got status code: %d. Response: %s",
-			resp.StatusCode, body.Bytes())
+		resp.Body.Close()
+		return nil, fmt.Errorf("GitHub request failed with HTTP %d", resp.StatusCode)
 	}
 	return resp, nil
+}
+
+func readGithubResponse(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, maxGithubResponseSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxGithubResponseSize {
+		return nil, fmt.Errorf("GitHub response exceeds the supported size")
+	}
+	return data, nil
 }
 
 func (g *GClient) getURL(endpoint string) string {

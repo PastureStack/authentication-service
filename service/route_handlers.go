@@ -2,36 +2,44 @@ package service
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
+	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/server"
 	"github.com/crewjam/saml"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rancher/go-rancher/api"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/server"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	redirectBackBase  = "redirectBackBase"
-	redirectBackPath  = "redirectBackPath"
-	postSamlTokenHTML = "/v1-auth/saml/tokenhtml"
-	tpl               = `
+	maxAuthRequestSize = 1 << 20
+	redirectBackBase   = "redirectBackBase"
+	redirectBackPath   = "redirectBackPath"
+	postSamlTokenHTML  = "/v1-auth/saml/tokenhtml"
+	defaultSAMLPath    = "/login/shibboleth-auth"
+	samlStateIssuer    = "pasturestack-authentication-service"
+	samlStateAudience  = "pasturestack-saml-relay-state"
+	tpl                = `
 <!DOCTYPE html>
 <html>
   <head>
-    <script>
+	<meta name="referrer" content="no-referrer" />
+    <script nonce="{{.Nonce}}">
       window.onload = function() {
         document.getElementById('TokenHTMLResponseForm').submit();
       }
@@ -41,23 +49,32 @@ const (
     <form method="post" action="{{.URL}}" id="TokenHTMLResponseForm">
       <input type="hidden" name="token" value="{{.Token}}" />
       <input type="hidden" name="finalRedirectURL" value="{{.FinalRedirectURL}}" />
-      <input type="hidden" name="secure" value="{{.Secure}}" />
     </form>
   </body>
 </html>`
 )
 
-//CreateToken is a handler for route /token and returns the jwt token after authenticating the user
+var (
+	errAuthRequestTooLarge = errors.New("authentication request is too large")
+	samlPostFormTemplate   = template.Must(template.New("saml-post-form").Parse(tpl))
+	validatePlatformToken  = server.ValidatePlatformToken
+)
+
+// CreateToken is a handler for route /token and returns the jwt token after authenticating the user
 func CreateToken(w http.ResponseWriter, r *http.Request) {
-	bytes, err := ioutil.ReadAll(r.Body)
+	body, err := readAuthRequestBody(r)
 	if err != nil {
-		log.Errorf("GetToken failed with error: %v", err)
+		status := http.StatusBadRequest
+		if errors.Is(err, errAuthRequestTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		ReturnHTTPError(w, r, status, err.Error())
+		return
 	}
 	var jsonInput map[string]string
-
-	err = json.Unmarshal(bytes, &jsonInput)
-	if err != nil {
-		log.Errorf("unmarshal failed with error: %v", err)
+	if err := json.Unmarshal(body, &jsonInput); err != nil {
+		ReturnHTTPError(w, r, http.StatusBadRequest, "Invalid authentication request")
+		return
 	}
 
 	securityCode := jsonInput["code"]
@@ -77,7 +94,7 @@ func CreateToken(w http.ResponseWriter, r *http.Request) {
 		}
 		api.GetApiContext(r).Write(&token)
 	} else if accessToken != "" {
-		log.Debugf("RefreshToken called with accessToken %s", accessToken)
+		log.Debug("RefreshToken called with an access token")
 		//getToken
 		token, status, err := server.RefreshToken(jsonInput)
 		if err != nil {
@@ -95,7 +112,7 @@ func CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//GetIdentities is a handler for route /me/identities and returns group memberships and details of the user
+// GetIdentities is a handler for route /me/identities and returns group memberships and details of the user
 func GetIdentities(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -103,7 +120,7 @@ func GetIdentities(w http.ResponseWriter, r *http.Request) {
 	if authHeader != "" {
 		// header value format will be "Bearer <token>"
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			log.Debugf("GetMyIdentities Failed to find Bearer token %v", authHeader)
+			log.Debug("GetIdentities rejected a malformed Authorization header")
 			ReturnHTTPError(w, r, http.StatusUnauthorized, "Unauthorized, please provide a valid token")
 			return
 		}
@@ -127,7 +144,7 @@ func GetIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//SearchIdentities is a handler for route /identities and filters (id + type or name) and returns the search results using the passed filters
+// SearchIdentities is a handler for route /identities and filters (id + type or name) and returns the search results using the passed filters
 func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -135,7 +152,7 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 	if authHeader != "" {
 		// header value format will be "Bearer <token>"
 		if !strings.HasPrefix(authHeader, "Bearer") {
-			log.Debugf("GetMyIdentities Failed to find Bearer token %v", authHeader)
+			log.Debug("SearchIdentities rejected a malformed Authorization header")
 			ReturnHTTPError(w, r, http.StatusUnauthorized, "Unauthorized, please provide a valid token")
 			return
 		}
@@ -147,11 +164,11 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("name")
 
 		if externalID != "" && externalIDType != "" {
-			log.Debugf("SearchIdentities by externalID: %v and externalIDType: %v", externalID, externalIDType)
+			log.Debug("Searching for one external identity")
 			//search by id and type
 			identity, err := server.GetIdentity(externalID, externalIDType, accessToken)
 			if err == nil {
-				log.Debugf("Found identity  %v", identity)
+				log.Debug("External identity search returned one result")
 				apiContext.Write(&identity)
 			} else {
 				//failed to search the identities
@@ -160,11 +177,11 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else if name != "" {
-			log.Debugf("SearchIdentities by name: %v", name)
+			log.Debug("Searching identities by name")
 			//Must call ldap SearchIdentities with exactMatch=true
 			identities, err := server.SearchIdentities(name, true, accessToken)
-			log.Debugf("Found identities  %v", identities)
 			if err == nil {
+				log.Debugf("Identity search returned %d results", len(identities))
 				resp := client.IdentityCollection{}
 				resp.Data = identities
 
@@ -186,10 +203,10 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//UpdateConfig is a handler for POST /config, loads the provider with the config and saves the config back to Cattle database
+// UpdateConfig handles POST /config, loads the provider, and saves the configuration to the control-plane database.
 func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
-	bytes, err := ioutil.ReadAll(r.Body)
+	bytes, err := readAuthRequestBody(r)
 	if err != nil {
 		log.Errorf("UpdateConfig failed with error: %v", err)
 		ReturnHTTPError(w, r, http.StatusBadRequest, "Bad Request, Please check the request content")
@@ -230,7 +247,7 @@ func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//GetConfig is a handler for GET /config, lists the provider config
+// GetConfig is a handler for GET /config, lists the provider config
 func GetConfig(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -238,7 +255,7 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 	// header value format will be "Bearer <token>"
 	if authHeader != "" {
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			log.Errorf("GetMyIdentities Failed to find Bearer token %v", authHeader)
+			log.Warn("GetConfig rejected a malformed Authorization header")
 			ReturnHTTPError(w, r, http.StatusUnauthorized, "Unauthorized, please provide a valid token")
 			return
 		}
@@ -256,7 +273,7 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//Reload is a handler for POST /reloadconfig, reloads the config from Cattle database and initializes the provider
+// Reload handles POST /reloadconfig, reloads configuration from the control-plane database, and initializes the provider.
 func Reload(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("Reload called")
 	_, err := server.Reload(false)
@@ -283,7 +300,7 @@ func addErrorToRedirect(redirectURL string, code string) string {
 	return redirectURL
 }
 
-//GetRedirectURL gets the redirect URL
+// GetRedirectURL gets the redirect URL
 func GetRedirectURL(w http.ResponseWriter, r *http.Request) {
 	redirectResponse, err := server.GetRedirectURL()
 	if err == nil {
@@ -297,7 +314,29 @@ func GetRedirectURL(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//DoSamlLogout redirects to Saml Logout
+// PrepareRedirectURL validates a proposed redirect-based provider without
+// replacing the active authentication method.
+func PrepareRedirectURL(w http.ResponseWriter, r *http.Request) {
+	body, err := readAuthRequestBody(r)
+	if err != nil {
+		ReturnHTTPError(w, r, http.StatusBadRequest, fmt.Sprintf("%v", err))
+		return
+	}
+	var authConfig model.AuthConfig
+	if err := json.Unmarshal(body, &authConfig); err != nil {
+		ReturnHTTPError(w, r, http.StatusBadRequest, "Invalid authentication configuration")
+		return
+	}
+	response, err := server.PrepareProvider(authConfig)
+	if err != nil {
+		ReturnHTTPError(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("%v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// DoSamlLogout redirects to Saml Logout
 func DoSamlLogout(w http.ResponseWriter, r *http.Request) {
 	if server.SamlServiceProvider != nil {
 		if server.SamlServiceProvider.ServiceProvider.IDPMetadata != nil {
@@ -330,17 +369,17 @@ func TestLogin(w http.ResponseWriter, r *http.Request) {
 	// header value format will be "Bearer <token>"
 	if authHeader != "" {
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			log.Errorf("GetMyIdentities Failed to find Bearer token %v", authHeader)
+			log.Warn("TestLogin rejected a malformed Authorization header")
 			ReturnHTTPError(w, r, http.StatusUnauthorized, "Unauthorized, please provide a valid token")
 			return
 		}
 		accessToken = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	bytes, err := ioutil.ReadAll(r.Body)
+	bytes, err := readAuthRequestBody(r)
 	if err != nil {
 		log.Errorf("TestLogin failed with error: %v", err)
-		ReturnHTTPError(w, r, http.StatusBadRequest, "Bad Request, Please check the request content")
+		ReturnHTTPError(w, r, http.StatusBadRequest, fmt.Sprintf("%v", err))
 		return
 	}
 	var testAuthConfig model.TestAuthConfig
@@ -358,36 +397,53 @@ func TestLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := server.TestLogin(testAuthConfig, accessToken, token)
+	testToken, status, err := server.TestLogin(testAuthConfig, accessToken, token)
 	if err != nil {
 		log.Errorf("TestLogin GetProvider failed with error: %v", err)
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
 		ReturnHTTPError(w, r, status, fmt.Sprintf("%v", err))
+		return
 	}
+	api.GetApiContext(r).Write(&testToken)
+}
+
+func readAuthRequestBody(r *http.Request) ([]byte, error) {
+	if r == nil || r.Body == nil {
+		return nil, fmt.Errorf("authentication request body is required")
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxAuthRequestSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the authentication request")
+	}
+	if len(body) > maxAuthRequestSize {
+		return nil, errAuthRequestTooLarge
+	}
+	return body, nil
 }
 
 // HandleSamlLogin is the endpoint for /saml/login endpoint
 func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
-	var redirectBackBaseValue string
 	s := server.SamlServiceProvider
-
-	s.XForwardedProto = r.Header.Get("X-Forwarded-Proto")
-
-	if r.URL.Query() != nil {
-		redirectBackBaseValue = r.URL.Query().Get(redirectBackBase)
-		if redirectBackBaseValue == "" {
-			redirectBackBaseValue = server.GetRancherAPIHost()
-		}
-	} else {
-		redirectBackBaseValue = server.GetRancherAPIHost()
+	if s == nil || s.ClientState == nil || s.ServiceProvider.IDPMetadata == nil {
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	redirectBackBaseValue := r.URL.Query().Get(redirectBackBase)
+	if redirectBackBaseValue == "" {
+		redirectBackBaseValue = server.GetPlatformAPIHost()
 	}
 
 	if !isWhitelisted(redirectBackBaseValue, s.RedirectWhitelist) {
-		log.Errorf("Cannot redirect to anything other than whitelisted domains and rancher api host")
+		log.Errorf("Cannot redirect outside whitelisted domains and the platform API host")
 		redirectBackPathValue := r.URL.Query().Get(redirectBackPath)
-		redirectURL := server.GetSamlRedirectURL(server.GetRancherAPIHost(), redirectBackPathValue)
+		redirectURL := samlRedirectURL(server.GetPlatformAPIHost(), redirectBackPathValue)
 		redirectURL = addErrorToRedirect(redirectURL, "422")
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
@@ -395,6 +451,7 @@ func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
 
 	serviceProvider := s.ServiceProvider
 	if r.URL.Path == serviceProvider.AcsURL.Path {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -404,197 +461,310 @@ func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
 		binding = saml.HTTPPostBinding
 		bindingLocation = serviceProvider.GetSSOBindingLocation(binding)
 	}
+	if bindingLocation == "" {
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
 
-	req, err := serviceProvider.MakeAuthenticationRequest(bindingLocation)
+	req, err := serviceProvider.MakeAuthenticationRequest(bindingLocation, binding, saml.HTTPPostBinding)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Errorf("Cannot create SAML authentication request: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	// relayState is limited to 80 bytes but also must be integrety protected.
 	// this means that we cannot use a JWT because it is way to long. Instead
 	// we set a cookie that corresponds to the state
-	relayState := base64.URLEncoding.EncodeToString(randomBytes(42))
+	randomState, err := randomBytes(42)
+	if err != nil {
+		log.Errorf("Cannot generate SAML RelayState: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	relayState := base64.RawURLEncoding.EncodeToString(randomState)
 
-	secretBlock := x509.MarshalPKCS1PrivateKey(serviceProvider.Key)
-	state := jwt.New(jwt.SigningMethodHS256)
-	claims := state.Claims.(jwt.MapClaims)
-	claims["id"] = req.ID
-	claims["uri"] = r.URL.String()
+	secretBlock, err := samlStateSigningSecret(serviceProvider.Key)
+	if err != nil {
+		log.Errorf("Cannot derive SAML RelayState signing key: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	now := time.Now().UTC()
+	state := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss": samlStateIssuer,
+		"aud": samlStateAudience,
+		"iat": now.Unix(),
+		"nbf": now.Add(-5 * time.Second).Unix(),
+		"exp": now.Add(saml.MaxIssueDelay).Unix(),
+		"jti": relayState,
+		"id":  req.ID,
+		"uri": r.URL.RequestURI(),
+	})
 	signedState, err := state.SignedString(secretBlock)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Errorf("Cannot sign SAML RelayState: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	s.ClientState.SetState(w, r, relayState, signedState)
 
 	if binding == saml.HTTPRedirectBinding {
-		redirectURL := req.Redirect(relayState)
-		w.Header().Add("Location", redirectURL.String())
+		redirectURL, err := req.Redirect(relayState, &serviceProvider)
+		if err != nil {
+			log.Errorf("Cannot build signed SAML redirect: %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Location", redirectURL.String())
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusFound)
 		return
 	}
 	if binding == saml.HTTPPostBinding {
-		w.Header().Add("Content-Security-Policy", ""+
+		w.Header().Set("Content-Security-Policy", ""+
 			"default-src; "+
 			"script-src 'sha256-AjPdJSbZmeWHnEc5ykvJFay8FTWeTeRbs9dutfZ0HqE='; "+
 			"reflected-xss block; referrer no-referrer;")
-		w.Header().Add("Content-type", "text/html")
-		w.Write([]byte(`<!DOCTYPE html><html><body>`))
-		w.Write(req.Post(relayState))
-		w.Write([]byte(`</body></html>`))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body>`))
+		_, _ = w.Write(req.Post(relayState))
+		_, _ = w.Write([]byte(`</body></html>`))
 		return
 	}
 }
 
 // ServeHTTP is the handler for /saml/metadata and /saml/acs endpoints
 func ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	serviceProvider := server.SamlServiceProvider.ServiceProvider
+	samlProvider := server.SamlServiceProvider
+	if samlProvider == nil || samlProvider.ClientState == nil {
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	serviceProvider := samlProvider.ServiceProvider
 	if r.URL.Path == serviceProvider.MetadataURL.Path {
-		buf, _ := xml.MarshalIndent(serviceProvider.Metadata(), "", "  ")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		buf, err := xml.MarshalIndent(serviceProvider.Metadata(), "", "  ")
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/samlmetadata+xml")
-		w.Write(buf)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(buf)
 		return
 	}
 
 	if r.URL.Path == serviceProvider.AcsURL.Path {
-		r.ParseForm()
-		assertion, err := serviceProvider.ParseResponse(r, getPossibleRequestIDs(r, server.SamlServiceProvider))
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxAuthRequestSize)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		requestIDs := getPossibleRequestIDs(r, samlProvider)
+		if len(requestIDs) != 1 {
+			log.Warn("SAML response did not match a pending service-provider request")
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+		assertion, err := serviceProvider.ParseResponse(r, requestIDs)
 		if err != nil {
-			if parseErr, ok := err.(*saml.InvalidResponseError); ok {
-				log.Errorf("RESPONSE: ===\n%s\n===\nNOW: %s\nERROR: %s",
-					parseErr.Response, parseErr.Now, parseErr.PrivateErr)
-			}
+			log.Warn("SAML response signature or assertion validation failed")
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 			return
 		}
 
-		HandleSamlAssertion(w, r, assertion, server.SamlServiceProvider)
+		HandleSamlAssertion(w, r, assertion, samlProvider)
 		return
 	}
 
 	http.NotFoundHandler().ServeHTTP(w, r)
 }
 
-func getPossibleRequestIDs(r *http.Request, s *model.RancherSamlServiceProvider) []string {
-	rv := []string{}
-	for _, value := range s.ClientState.GetStates(r) {
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwt.SigningMethodHS256.Name},
-		}
-		token, err := jwtParser.Parse(value, func(t *jwt.Token) (interface{}, error) {
-			secretBlock := x509.MarshalPKCS1PrivateKey(s.ServiceProvider.Key)
-			return secretBlock, nil
-		})
-		if err != nil || !token.Valid {
-			log.Debugf("... invalid token %s", err)
-			continue
-		}
-		claims := token.Claims.(jwt.MapClaims)
-		rv = append(rv, claims["id"].(string))
+func getPossibleRequestIDs(r *http.Request, s *model.PlatformSamlServiceProvider) []string {
+	claims, _, err := validatedSamlState(r, s)
+	if err != nil {
+		return nil
 	}
-
-	return rv
+	id, ok := stringClaim(claims, "id")
+	if !ok || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	return []string{id}
 }
 
-func randomBytes(n int) []byte {
+func samlStateSigningSecret(key crypto.Signer) ([]byte, error) {
+	if key == nil {
+		return nil, fmt.Errorf("SAML service-provider signing key is missing")
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal SAML service-provider signing key: %w", err)
+	}
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("PastureStack SAML RelayState v1\x00"))
+	_, _ = hash.Write(der)
+	return hash.Sum(nil), nil
+}
+
+func randomBytes(n int) ([]byte, error) {
+	if n < 1 || n > 4096 {
+		return nil, fmt.Errorf("invalid random byte count")
+	}
 	rv := make([]byte, n)
-	if _, err := saml.RandReader.Read(rv); err != nil {
-		panic(err)
+	if _, err := io.ReadFull(saml.RandReader, rv); err != nil {
+		return nil, fmt.Errorf("read secure random bytes: %w", err)
 	}
-	return rv
+	return rv, nil
 }
 
-func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *model.RancherSamlServiceProvider) (redirectBackBaseValue string,
-	redirectBackPathValue string) {
-	redirectBackBaseValue = server.GetRancherAPIHost()
-	redirectBackPathValue = "/login/shibboleth-auth"
-
-	if serviceProvider.ServiceProvider.Key == nil {
-		log.Errorf("GetRedirectParams: No key found in service provider")
-		redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-		redirectURL = addErrorToRedirect(redirectURL, "403")
-		http.Redirect(w, r, redirectURL, http.StatusFound)
-		return
+func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *model.PlatformSamlServiceProvider) (redirectBackBaseValue string,
+	redirectBackPathValue string, err error) {
+	redirectBackBaseValue = server.GetPlatformAPIHost()
+	redirectBackPathValue = defaultSAMLPath
+	claims, relayState, err := validatedSamlState(r, serviceProvider)
+	if err != nil {
+		return redirectBackBaseValue, redirectBackPathValue, err
 	}
-	secretBlock := x509.MarshalPKCS1PrivateKey(serviceProvider.ServiceProvider.Key)
-	if relayState := r.Form.Get("RelayState"); relayState != "" {
-		stateValue := serviceProvider.ClientState.GetState(r, relayState)
-		if stateValue == "" {
-			log.Errorf("cannot find corresponding state: %s", relayState)
-			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-			redirectURL = addErrorToRedirect(redirectURL, "403")
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwt.SigningMethodHS256.Name},
-		}
-		state, err := jwtParser.Parse(stateValue, func(t *jwt.Token) (interface{}, error) {
-			return secretBlock, nil
-		})
-		if err != nil || !state.Valid {
-			log.Errorf("Cannot decode state JWT: %s (%s)", err, stateValue)
-			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-			redirectURL = addErrorToRedirect(redirectURL, "403")
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-		claims := state.Claims.(jwt.MapClaims)
-		if claims == nil {
-			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-			redirectURL = addErrorToRedirect(redirectURL, "403")
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-		redirectURI := claims["uri"].(string)
-		log.Debugf("RelayState used to get redirect params: %v", relayState)
-		log.Debugf("redirectURI from claims: %v", redirectURI)
-		query, err := url.Parse(redirectURI)
-		if err != nil {
-			log.Errorf("Error in getting query params")
-			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-			redirectURL = addErrorToRedirect(redirectURL, "403")
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-		parsedQuery, err := url.ParseQuery(query.RawQuery)
-		if err != nil {
-			log.Errorf("Error in parsing query params")
-			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-			redirectURL = addErrorToRedirect(redirectURL, "403")
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-		redirectBackBaseValue = parsedQuery.Get(redirectBackBase)
-		redirectBackPathValue = parsedQuery.Get(redirectBackPath)
-		log.Debugf("redirectBackBaseValue, redirectBackPathValue from claims: %v, %v", redirectBackBaseValue, redirectBackPathValue)
-		// delete the cookie
-		log.Debugf("Deleting relayState: %v", relayState)
-		serviceProvider.ClientState.DeleteState(w, r, relayState)
+	redirectURI, ok := stringClaim(claims, "uri")
+	if !ok {
+		return redirectBackBaseValue, redirectBackPathValue, fmt.Errorf("SAML state URI is missing")
 	}
-	return redirectBackBaseValue, redirectBackPathValue
+	requestURI, err := url.ParseRequestURI(redirectURI)
+	if err != nil || requestURI.IsAbs() || requestURI.Host != "" || !strings.HasPrefix(requestURI.Path, "/") {
+		return redirectBackBaseValue, redirectBackPathValue, fmt.Errorf("SAML state URI is invalid")
+	}
+	values := requestURI.Query()
+	if len(values[redirectBackBase]) > 1 || len(values[redirectBackPath]) > 1 {
+		return redirectBackBaseValue, redirectBackPathValue, fmt.Errorf("SAML state has duplicate redirect parameters")
+	}
+	if value := strings.TrimSpace(values.Get(redirectBackBase)); value != "" {
+		redirectBackBaseValue = value
+	}
+	if value := strings.TrimSpace(values.Get(redirectBackPath)); value != "" {
+		if err := validateRedirectPath(value); err != nil {
+			return redirectBackBaseValue, redirectBackPathValue, err
+		}
+		redirectBackPathValue = value
+	}
+	if err := serviceProvider.ClientState.DeleteState(w, r, relayState); err != nil {
+		return redirectBackBaseValue, redirectBackPathValue, fmt.Errorf("consume SAML state: %w", err)
+	}
+	return redirectBackBaseValue, redirectBackPathValue, nil
+}
+
+func validatedSamlState(r *http.Request, serviceProvider *model.PlatformSamlServiceProvider) (jwt.MapClaims, string, error) {
+	if r == nil || serviceProvider == nil || serviceProvider.ClientState == nil {
+		return nil, "", fmt.Errorf("SAML service provider is not configured")
+	}
+	if r.Form == nil {
+		if err := r.ParseForm(); err != nil {
+			return nil, "", fmt.Errorf("parse SAML callback form: %w", err)
+		}
+	}
+	relayState := strings.TrimSpace(r.Form.Get("RelayState"))
+	if relayState == "" {
+		return nil, "", fmt.Errorf("SAML RelayState is required")
+	}
+	stateValue := serviceProvider.ClientState.GetState(r, relayState)
+	if stateValue == "" {
+		return nil, "", fmt.Errorf("SAML RelayState does not match a pending request")
+	}
+	secretBlock, err := samlStateSigningSecret(serviceProvider.ServiceProvider.Key)
+	if err != nil {
+		return nil, "", err
+	}
+	claims, err := parseSamlState(stateValue, secretBlock)
+	if err != nil {
+		return nil, "", fmt.Errorf("validate SAML RelayState: %w", err)
+	}
+	stateID, ok := stringClaim(claims, "jti")
+	if !ok || stateID != relayState {
+		return nil, "", fmt.Errorf("SAML RelayState identifier does not match its cookie")
+	}
+	return claims, relayState, nil
+}
+
+func validateRedirectPath(value string) error {
+	if strings.ContainsAny(value, "\r\n") || strings.HasPrefix(value, "//") {
+		return fmt.Errorf("redirect path is invalid")
+	}
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") {
+		return fmt.Errorf("redirect path must be an absolute path on the selected host")
+	}
+	return nil
+}
+
+func parseSamlState(value string, secretBlock []byte) (jwt.MapClaims, error) {
+	if len(secretBlock) < sha256.Size {
+		return nil, fmt.Errorf("SAML state signing key is invalid")
+	}
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuer(samlStateIssuer),
+		jwt.WithAudience(samlStateAudience),
+		jwt.WithIssuedAt(),
+		jwt.WithLeeway(5*time.Second),
+	)
+	token, err := parser.ParseWithClaims(value, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return secretBlock, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("state token is not valid")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims == nil {
+		return nil, fmt.Errorf("state token claims are invalid")
+	}
+	return claims, nil
+}
+
+func stringClaim(claims jwt.MapClaims, key string) (string, bool) {
+	value, found := claims[key]
+	if !found {
+		return "", false
+	}
+	valueString, ok := value.(string)
+	return valueString, ok
 }
 
 // HandleSamlAssertion processes/handles the assertion obtained by the POST to /saml/acs from IdP
-func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml.Assertion, serviceProvider *model.RancherSamlServiceProvider) {
-	redirectBackBaseValue, redirectBackPathValue := GetRedirectParams(w, r, serviceProvider)
-	log.Debugf("redirectBackBaseValue, redirectBackPathValue from GetRedirectParams: %v, %v", redirectBackBaseValue, redirectBackPathValue)
-
-	if redirectBackBaseValue == "" {
-		redirectBackBaseValue = server.GetRancherAPIHost()
+func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml.Assertion, serviceProvider *model.PlatformSamlServiceProvider) {
+	if assertion == nil || serviceProvider == nil {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	redirectBackBaseValue, redirectBackPathValue, err := GetRedirectParams(w, r, serviceProvider)
+	if err != nil {
+		log.Warnf("SAML RelayState validation failed: %v", err)
+		redirectURL := addErrorToRedirect(samlRedirectURL(server.GetPlatformAPIHost(), defaultSAMLPath), "403")
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
 	}
 
-	redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
-
 	if !isWhitelisted(redirectBackBaseValue, serviceProvider.RedirectWhitelist) {
-		log.Errorf("Cannot redirect to anything other than whitelisted domains and rancher api host")
-		redirectURL := server.GetSamlRedirectURL(server.GetRancherAPIHost(), redirectBackPathValue)
+		log.Warn("SAML redirect target is not allowed")
+		redirectURL := samlRedirectURL(server.GetPlatformAPIHost(), redirectBackPathValue)
 		redirectURL = addErrorToRedirect(redirectURL, "422")
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
+	redirectURL := samlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
 
 	samlData := make(map[string][]string)
 
@@ -610,25 +780,34 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 		}
 	}
 
-	rancherAPI := server.GetRancherAPIHost()
+	platformAPI := server.GetPlatformAPIHost()
 	//get the SAML data, create a jwt token and POST to /v1/token with code = "jwt token"
-	mapB, _ := json.Marshal(samlData)
+	mapB, err := json.Marshal(samlData)
+	if err != nil {
+		redirectURL = addErrorToRedirect(redirectURL, "500")
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
 
 	inputJSON := make(map[string]string)
 	inputJSON["code"] = string(mapB)
 	outputJSON := make(map[string]interface{})
 
-	tokenURL := rancherAPI + "/v1/token"
-	log.Debugf("HandleSamlAssertion: tokenURL %v ", tokenURL)
-
-	err := server.RancherClient.Post(tokenURL, inputJSON, &outputJSON)
+	tokenURL := platformAPI + "/v1/token"
+	if server.PlatformClient == nil {
+		redirectURL = addErrorToRedirect(redirectURL, "503")
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+	err = server.PlatformClient.Post(tokenURL, inputJSON, &outputJSON)
 	if err != nil {
-		//failed to get token from cattle
-		log.Errorf("HandleSamlAssertion failed to Get token from cattle with error %v", err.Error())
-		if strings.Contains(err.Error(), "401") {
+		// Failed to get a token from the control plane.
+		log.Warn("SAML assertion could not be exchanged for a platform token")
+		var apiErr *client.ApiError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
 			//add error=401 query param to redirect
 			redirectURL = addErrorToRedirect(redirectURL, "401")
-		} else if strings.Contains(err.Error(), "403") {
+		} else if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
 			redirectURL = addErrorToRedirect(redirectURL, "403")
 		} else {
 			redirectURL = addErrorToRedirect(redirectURL, "500")
@@ -637,13 +816,12 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 		return
 	}
 
-	jwt := outputJSON["jwt"].(string)
-	log.Debugf("HandleSamlAssertion: Got token %v ", jwt)
-
-	secure := false
-	XForwardedProtoValue := serviceProvider.XForwardedProto
-	if XForwardedProtoValue == "https" {
-		secure = true
+	jwtValue, ok := outputJSON["jwt"].(string)
+	if !ok || strings.TrimSpace(jwtValue) == "" {
+		log.Error("SAML token exchange returned no signed token")
+		redirectURL = addErrorToRedirect(redirectURL, "500")
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
 	}
 
 	/* token is created at this point. If the redirectBackBase is not same as the current URL's domain, then we cannot set the token as cookie
@@ -651,145 +829,252 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 	and JS which will submit form on load to redirect URL. The handler for v1-auth/saml/tokenhtml will then set the token as cookie
 	*/
 
-	query, err := url.Parse(redirectBackBaseValue)
+	query, err := parseHTTPRedirectURL(redirectBackBaseValue)
 	if err != nil {
-		log.Errorf("HandleSamlAssertion: Error in parsing redirectBackBaseValue: %v", err)
+		log.Warnf("SAML redirect target is invalid: %v", err)
 		redirectURL = addErrorToRedirect(redirectURL, "500")
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
 
-	log.Debugf("HandleSamlAssertion: r.URL: %v, host: %v, redirectBackBaseValue: %v, redirectBackBaseValue.host: %v", r.URL, r.Host, redirectBackBaseValue,
-		query.Host)
-	if query.Host != r.Host {
-		newRedirectURL := redirectBackBaseValue + postSamlTokenHTML
-		w.Header().Add("Content-type", "text/html")
+	if !sameRequestOrigin(r, query) {
+		handoffURL := *query
+		handoffURL.Path = strings.TrimRight(handoffURL.Path, "/") + postSamlTokenHTML
+		handoffURL.RawQuery = ""
+		handoffURL.Fragment = ""
+		newRedirectURL := handoffURL.String()
+		nonceBytes, err := randomBytes(18)
+		if err != nil {
+			redirectURL = addErrorToRedirect(redirectURL, "500")
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+		nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action "+query.Scheme+"://"+query.Host+"; base-uri 'none'; frame-ancestors 'none'")
 
-		tmpl := template.Must(template.New("saml-post-form").Parse(tpl))
 		data := struct {
 			URL              string
 			Token            string
 			FinalRedirectURL string
-			Secure           bool
+			Nonce            string
 		}{
 			URL:              newRedirectURL,
-			Token:            jwt,
+			Token:            jwtValue,
 			FinalRedirectURL: redirectURL,
-			Secure:           secure,
+			Nonce:            nonce,
 		}
 
-		log.Debugf("HandleSamlAssertion: Adding data to template: %#v", data)
 		rv := bytes.Buffer{}
-		if err := tmpl.Execute(&rv, data); err != nil {
+		if err := samlPostFormTemplate.Execute(&rv, data); err != nil {
 			redirectURL = addErrorToRedirect(redirectURL, "500")
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
 
-		w.Write(rv.Bytes())
+		_, _ = w.Write(rv.Bytes())
 		return
 	}
 
 	// else, if redirectBackBase is same as the current URL, continue and set this token as cookie
 	tokenCookie := &http.Cookie{
-		Name:   "token",
-		Value:  jwt,
-		Secure: secure,
-		MaxAge: 0,
-		Path:   "/",
+		Name:     "token",
+		Value:    jwtValue,
+		Secure:   requestIsHTTPS(r),
+		HttpOnly: true,
+		MaxAge:   0,
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, tokenCookie)
-	log.Debugf("JWT token: %v", jwt)
-	log.Debugf("redirecting the user with cookie %v to %v", tokenCookie, redirectURL)
-
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, redirectURL, http.StatusFound)
-	return
 }
 
 func PostSamlTokenHTML(w http.ResponseWriter, r *http.Request) {
-	var token, finalRedirectURL string
-	var secure bool
-	var err error
-
-	if err = r.ParseForm(); err != nil {
-		log.Errorf("PostSamlTokenHTML: Error in parsing forn: %v", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-
-	tokenArr, ok := r.Form["token"]
-	if !ok || len(tokenArr) == 0 {
-		log.Errorf("PostSamlTokenHTML: No token provided in POST request: %v", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	if !validSAMLHandoffOrigin(r) {
+		log.Warn("Rejected SAML token handoff from an unexpected origin")
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
-	token = tokenArr[0]
-	log.Debugf("PostSamlTokenHTML: token in the post form: %v", token)
-
-	finalRedirectURLArr, ok := r.Form["finalRedirectURL"]
-	if !ok || len(finalRedirectURLArr) == 0 {
-		log.Errorf("PostSamlTokenHTML: No finalRedirectURL provided in POST request: %v", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthRequestSize)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	finalRedirectURL = finalRedirectURLArr[0]
-	log.Debugf("PostSamlTokenHTML: finalRedirectURL in the post form: %v", finalRedirectURL)
-
-	secureArr, ok := r.Form["secure"]
-	if !ok || len(secureArr) == 0 {
-		log.Errorf("PostSamlTokenHTML: No secure parameter provided in POST request: %v", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	token := strings.TrimSpace(r.Form.Get("token"))
+	finalRedirectURL := strings.TrimSpace(r.Form.Get("finalRedirectURL"))
+	if token == "" || finalRedirectURL == "" {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	secureStr := secureArr[0]
-	secure, err = strconv.ParseBool(secureStr)
-	if err != nil {
-		log.Errorf("PostSamlTokenHTML: Error in parsing secure flag for token: %v", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	if err := validatePlatformToken(token); err != nil {
+		log.Warn("Rejected SAML token handoff with an invalid token")
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
-	log.Debugf("PostSamlTokenHTML: secure attribute in the post form: %v, and original: %v", secure, secureStr)
+	samlProvider := server.SamlServiceProvider
+	if samlProvider == nil || !isAllowedRedirectURL(finalRedirectURL, samlProvider.RedirectWhitelist) {
+		log.Warn("Rejected SAML token handoff with an invalid redirect target")
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
 
 	tokenCookie := &http.Cookie{
-		Name:   "token",
-		Value:  token,
-		Secure: secure,
-		MaxAge: 0,
-		Path:   "/",
+		Name:     "token",
+		Value:    token,
+		Secure:   requestIsHTTPS(r),
+		HttpOnly: true,
+		MaxAge:   0,
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, tokenCookie)
-	log.Debugf("redirecting the user with cookie %v to %v", tokenCookie, finalRedirectURL)
-
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, finalRedirectURL, http.StatusFound)
 }
 
 func isWhitelisted(redirectBackBaseValue string, redirectWhitelist string) bool {
-	var redirectBackBaseDomainNonPort string
-	if redirectBackBaseValue == server.GetRancherAPIHost() {
-		return true
-	}
-	redirectURL, err := url.Parse(redirectBackBaseValue)
+	redirectURL, err := parseHTTPRedirectURL(redirectBackBaseValue)
 	if err != nil {
-		log.Errorf("Error in parsing redirect URL")
 		return false
 	}
-	redirectBackBaseDomain := redirectURL.Host
-	if strings.Contains(redirectBackBaseDomain, ":") {
-		d := strings.SplitN(redirectBackBaseDomain, ":", 2)
-		redirectBackBaseDomainNonPort = d[0]
+	platformURL, err := parseHTTPRedirectURL(server.GetPlatformAPIHost())
+	if err == nil && sameOriginURLs(redirectURL, platformURL) {
+		return true
 	}
-
-	// comma separated list of whitelisted domains to redirect to
-	if redirectWhitelist != "" {
-		whitelistedDomains := strings.Split(redirectWhitelist, ",")
-		log.Debugf("Whitelisted domains provided: %v, redirectBackBase: %v, redirectBackBaseNonPort: %v", whitelistedDomains,
-			redirectBackBaseDomain, redirectBackBaseDomainNonPort)
-		for _, w := range whitelistedDomains {
-			if w == redirectBackBaseDomain || w == redirectBackBaseDomainNonPort {
-				log.Debugf("Whitelisted domain matched: %v", w)
+	targetHost := strings.ToLower(strings.TrimSuffix(redirectURL.Host, "."))
+	targetHostname := strings.ToLower(strings.TrimSuffix(redirectURL.Hostname(), "."))
+	for _, rawEntry := range strings.Split(redirectWhitelist, ",") {
+		entry := strings.TrimSpace(rawEntry)
+		if entry == "" || strings.ContainsAny(entry, "\r\n") || strings.Contains(entry, "*") {
+			continue
+		}
+		if strings.Contains(entry, "://") {
+			allowedURL, err := parseHTTPRedirectURL(entry)
+			if err == nil && sameOriginURLs(redirectURL, allowedURL) {
 				return true
 			}
+			continue
+		}
+		normalized := strings.ToLower(strings.TrimSuffix(entry, "."))
+		if normalized == targetHost || (normalized == targetHostname && hasDefaultOrImplicitPort(redirectURL)) {
+			return true
 		}
 	}
 	return false
+}
+
+func parseHTTPRedirectURL(value string) (*url.URL, error) {
+	if strings.ContainsAny(value, "\r\n") {
+		return nil, fmt.Errorf("redirect URL contains control characters")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("redirect URL must be an absolute HTTP or HTTPS URL")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("redirect base must not contain user information, query parameters, or a fragment")
+	}
+	return parsed, nil
+}
+
+func isAllowedRedirectURL(value string, redirectWhitelist string) bool {
+	if strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return false
+	}
+	base := &url.URL{Scheme: parsed.Scheme, Host: parsed.Host}
+	return isWhitelisted(base.String(), redirectWhitelist)
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil || strings.EqualFold(r.URL.Scheme, "https") {
+		return true
+	}
+	forwardedProto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	return strings.EqualFold(forwardedProto, "https")
+}
+
+func sameRequestOrigin(r *http.Request, target *url.URL) bool {
+	if r == nil || target == nil || strings.TrimSpace(r.Host) == "" {
+		return false
+	}
+	scheme := "http"
+	if requestIsHTTPS(r) {
+		scheme = "https"
+	}
+	current, err := url.Parse(scheme + "://" + r.Host)
+	return err == nil && sameOriginURLs(current, target)
+}
+
+func sameOriginURLs(left *url.URL, right *url.URL) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return strings.EqualFold(left.Scheme, right.Scheme) &&
+		strings.EqualFold(strings.TrimSuffix(left.Hostname(), "."), strings.TrimSuffix(right.Hostname(), ".")) &&
+		effectivePort(left) == effectivePort(right)
+}
+
+func effectivePort(value *url.URL) string {
+	if port := value.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(value.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+func hasDefaultOrImplicitPort(value *url.URL) bool {
+	if value == nil || value.Port() == "" {
+		return value != nil
+	}
+	return (strings.EqualFold(value.Scheme, "https") && value.Port() == "443") ||
+		(strings.EqualFold(value.Scheme, "http") && value.Port() == "80")
+}
+
+func validSAMLHandoffOrigin(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" || origin == "null" {
+		return false
+	}
+	originURL, err := parseHTTPRedirectURL(origin)
+	if err != nil || (originURL.Path != "" && originURL.Path != "/") {
+		return false
+	}
+	platformURL, err := parseHTTPRedirectURL(server.GetPlatformAPIHost())
+	return err == nil && sameOriginURLs(originURL, platformURL)
+}
+
+func samlRedirectURL(base string, path string) string {
+	if err := validateRedirectPath(path); err != nil {
+		path = defaultSAMLPath
+	}
+	baseURL, err := parseHTTPRedirectURL(base)
+	if err != nil {
+		baseURL, err = parseHTTPRedirectURL(server.GetPlatformAPIHost())
+	}
+	if err != nil {
+		baseURL = &url.URL{Scheme: "http", Host: "localhost:8080"}
+	}
+	return strings.TrimRight(baseURL.String(), "/") + path
 }
