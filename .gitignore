@@ -3,5 +3,5 @@
 /dist
 *.swp
 /.trash-cache
-/rancher-auth-service
+/authentication-service
 .idea/

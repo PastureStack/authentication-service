@@ -1,12 +1,13 @@
 package model
 
 import (
+	"net/http"
+
 	"github.com/crewjam/saml"
-	"github.com/crewjam/saml/samlsp"
 	"github.com/rancher/go-rancher/v2"
 )
 
-//ShibbolethConfig stores the shibboleth config
+// ShibbolethConfig stores the shibboleth config
 type ShibbolethConfig struct {
 	client.Resource
 	IDPMetadataURL     string `json:"idpMetadataUrl"`
@@ -18,19 +19,33 @@ type ShibbolethConfig struct {
 	UserNameField      string `json:"userNameField"`
 	UIDField           string `json:"uidField"`
 
-	IDPMetadataFilePath      string
-	SPSelfSignedCertFilePath string
-	SPSelfSignedKeyFilePath  string
-	RancherAPIHost           string
+	// Deprecated: these fields are retained for source compatibility only.
+	// The server passes trusted process-level values through RuntimeConfig;
+	// public JSON can neither populate nor disclose these values.
+	IDPMetadataFilePath      string `json:"-"`
+	SPSelfSignedCertFilePath string `json:"-"`
+	SPSelfSignedKeyFilePath  string `json:"-"`
+	PlatformAPIHost          string `json:"-"`
 
-	SamlServiceProvider *RancherSamlServiceProvider
+	SamlServiceProvider *PlatformSamlServiceProvider `json:"-"`
 }
 
-type RancherSamlServiceProvider struct {
+type PlatformSamlServiceProvider struct {
 	ServiceProvider   saml.ServiceProvider
-	ClientState       samlsp.ClientState
+	ClientState       SAMLClientState
 	RedirectBackPath  string
 	RedirectBackBase  string
 	XForwardedProto   string
 	RedirectWhitelist string
+}
+
+// SAMLClientState is the compatibility contract for the signed RelayState
+// cookie used by the existing authentication flow.  Keeping this small
+// interface local avoids coupling the control platform to samlsp's request
+// tracker implementation, which changed after the security-fixed releases.
+type SAMLClientState interface {
+	SetState(w http.ResponseWriter, r *http.Request, id string, value string)
+	GetStates(r *http.Request) map[string]string
+	GetState(r *http.Request, id string) string
+	DeleteState(w http.ResponseWriter, r *http.Request, id string) error
 }

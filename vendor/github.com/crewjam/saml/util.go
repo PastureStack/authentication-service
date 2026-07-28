@@ -2,6 +2,7 @@ package saml
 
 import (
 	"crypto/rand"
+	"io"
 	"time"
 
 	dsig "github.com/russellhaering/goxmldsig"
@@ -20,9 +21,11 @@ var Clock *dsig.Clock
 // rand.Reader, but it can be replaced for testing.
 var RandReader = rand.Reader
 
+//nolint:unparam // This always receives 20, but we want the option to do more or less if needed.
 func randomBytes(n int) []byte {
 	rv := make([]byte, n)
-	if _, err := RandReader.Read(rv); err != nil {
+
+	if _, err := io.ReadFull(RandReader, rv); err != nil {
 		panic(err)
 	}
 	return rv

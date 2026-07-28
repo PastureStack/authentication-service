@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-trap "chown -R $DAPPER_UID:$DAPPER_GID ." exit
-
 mkdir -p bin dist
+git config --global --add safe.directory "$DAPPER_SOURCE" 2>/dev/null || true
 if [ -e ./scripts/$1 ]; then
     ./scripts/"$@"
 else

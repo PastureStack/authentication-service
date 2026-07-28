@@ -1,20 +1,21 @@
 package ldap
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/go-ldap/ldap/v3"
 	"github.com/pkg/errors"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"gopkg.in/ldap.v2"
+	log "github.com/sirupsen/logrus"
 )
 
 // LClient is the ldap client
@@ -77,59 +78,81 @@ func (l *LClient) InitializeSearchConfig() *SearchConfig {
 }
 
 func (l *LClient) newConn() (*ldap.Conn, error) {
-	log.Debug("Now creating Ldap connection")
-	var lConn *ldap.Conn
-	var err error
-	var tlsConfig *tls.Config
-	searchConfig := l.SearchConfig
-	ldap.DefaultTimeout = time.Duration(l.Config.ConnectionTimeout) * time.Millisecond
-	if l.Config.TLS {
-		tlsConfig = &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: l.Config.Server}
-		lConn, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", searchConfig.Server, searchConfig.Port), tlsConfig)
-		if err != nil {
-			return nil, fmt.Errorf("Error creating ssl connection: %v", err)
-		}
-	} else {
-		lConn, err = ldap.Dial("tcp", fmt.Sprintf("%s:%d", searchConfig.Server, searchConfig.Port))
-		if err != nil {
-			return nil, fmt.Errorf("Error creating connection: %v", err)
-		}
+	if l == nil || l.Config == nil || l.SearchConfig == nil || l.ConstantsConfig == nil {
+		return nil, fmt.Errorf("LDAP client is not configured")
 	}
+	searchConfig := l.SearchConfig
+	return dialLDAPConnection(l.Config, searchConfig.Server, searchConfig.Port, l.ConstantsConfig.CAPool)
+}
 
-	lConn.SetTimeout(time.Duration(l.Config.ConnectionTimeout) * time.Millisecond)
+func dialLDAPConnection(config *model.LdapConfig, server string, port int64, caPool *x509.CertPool) (*ldap.Conn, error) {
+	if config == nil || strings.TrimSpace(server) == "" || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("LDAP server and port are invalid")
+	}
+	if config.ConnectionTimeout <= 0 {
+		return nil, fmt.Errorf("LDAP connection timeout must be greater than zero")
+	}
+	timeout := time.Duration(config.ConnectionTimeout) * time.Millisecond
+	dialer := &net.Dialer{Timeout: timeout}
+	scheme := "ldap"
+	options := []ldap.DialOpt{ldap.DialWithDialer(dialer)}
+	if config.TLS {
+		scheme = "ldaps"
+		options = append(options, ldap.DialWithTLSConfig(&tls.Config{
+			RootCAs:    caPool,
+			ServerName: server,
+			MinVersion: tls.VersionTLS12,
+		}))
+	}
+	address := scheme + "://" + net.JoinHostPort(server, strconv.FormatInt(port, 10))
+	connection, err := ldap.DialURL(address, options...)
+	if err != nil {
+		return nil, fmt.Errorf("create LDAP connection: %w", err)
+	}
+	connection.SetTimeout(timeout)
+	return connection, nil
+}
 
-	return lConn, nil
+func splitLDAPCredentials(code string) (string, string, error) {
+	parts := strings.SplitN(code, ":", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
+		return "", "", fmt.Errorf("LDAP username and password are required")
+	}
+	if parts[1] == "" {
+		return "", "", fmt.Errorf("LDAP password is required")
+	}
+	return parts[0], parts[1], nil
 }
 
 // GenerateToken generates token
 func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, error) {
 	log.Info("Now generating Ldap token")
+	if l == nil || l.Config == nil || l.SearchConfig == nil || l.ConstantsConfig == nil {
+		return nilToken, http.StatusServiceUnavailable, fmt.Errorf("LDAP client is not configured")
+	}
 	searchConfig := l.SearchConfig
 
 	//getLdapToken:ADTokenCreator
 	//getIdentities: ADIdentityProvider
 	var status int
 
-	split := strings.SplitN(jsonInput["code"], ":", 2)
-	username, password := split[0], split[1]
+	username, password, err := splitLDAPCredentials(jsonInput["code"])
+	if err != nil {
+		return nilToken, 401, err
+	}
 	externalID := getUserExternalID(username, l.Config.LoginDomain)
-
-	if password == "" {
-		status = 401
-		return nilToken, status, fmt.Errorf("Failed to login, password not provided")
+	if !l.Enabled && l.SearchConfig.BindPassword == "" {
+		return nilToken, 401, fmt.Errorf("LDAP service-account password is required")
 	}
 
 	lConn, err := l.newConn()
 	if err != nil {
 		return nilToken, status, err
 	}
+	defer lConn.Close()
 
 	if !l.Enabled {
 		log.Debug("Bind service account username password")
-		if l.SearchConfig.BindPassword == "" {
-			status = 401
-			return nilToken, status, fmt.Errorf("Failed to login, service account password not provided")
-		}
 		sausername := getUserExternalID(l.SearchConfig.BindDN, l.Config.LoginDomain)
 		err = lConn.Bind(sausername, l.SearchConfig.BindPassword)
 
@@ -137,7 +160,6 @@ func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, 
 			if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
 				status = 401
 			}
-			defer lConn.Close()
 			return nilToken, status, fmt.Errorf("Error in ldap bind of service account: %v", err)
 		}
 	}
@@ -151,7 +173,6 @@ func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, 
 		}
 		return nilToken, status, fmt.Errorf("Error in ldap bind: %v", err)
 	}
-	defer lConn.Close()
 	originalLogin := username
 	samName := username
 	if strings.Contains(username, `\`) {
@@ -167,7 +188,7 @@ func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, 
 			groupQuery := "(&" + query + groupFilter + ")"
 			query = groupQuery
 		}
-		log.Debugf("Query for required mode: %s", query)
+		log.Debug("Running the required-access LDAP user query")
 		search := ldap.NewSearchRequest(l.Config.Domain,
 			ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 			query,
@@ -179,14 +200,14 @@ func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, 
 
 		l.logResult(result, "GenerateToken")
 		if len(result.Entries) < 1 {
-			return nilToken, 403, errors.Errorf("Cannot locate user information for %s", search.Filter)
+			return nilToken, http.StatusForbidden, errors.New("Cannot locate user information")
 		} else if len(result.Entries) > 1 {
-			return nilToken, 403, errors.New("More than one result")
+			return nilToken, http.StatusForbidden, errors.New("More than one result")
 		}
 
 	}
 
-	log.Debugf("LDAP Search query: {%s}", query)
+	log.Debug("Running the LDAP user query")
 	search := ldap.NewSearchRequest(l.Config.Domain,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		query,
@@ -197,6 +218,9 @@ func (l *LClient) GenerateToken(jsonInput map[string]string) (model.Token, int, 
 
 func (l *LClient) getIdentitiesFromSearchResult(result *ldap.SearchResult) ([]client.Identity, error) {
 	// getIdentities(SearchResult result): ADIdentityProvider
+	if result == nil || len(result.Entries) == 0 || result.Entries[0] == nil {
+		return nil, fmt.Errorf("LDAP user search returned no entries")
+	}
 	c := l.ConstantsConfig
 	entry := result.Entries[0]
 	if !l.hasPermission(entry.Attributes, l.Config) {
@@ -207,8 +231,7 @@ func (l *LClient) getIdentitiesFromSearchResult(result *ldap.SearchResult) ([]cl
 	memberOf := entry.GetAttributeValues(c.MemberOfAttribute)
 	user := &client.Identity{}
 
-	log.Debugf("ADConstants userMemberAttribute() {%s}", c.MemberOfAttribute)
-	log.Debugf("SearchResult memberOf attribute {%s}", memberOf)
+	log.Debugf("LDAP user belongs to %d groups", len(memberOf))
 
 	// isType
 	isType := false
@@ -235,6 +258,7 @@ func (l *LClient) getIdentitiesFromSearchResult(result *ldap.SearchResult) ([]cl
 		if err != nil {
 			return []client.Identity{}, fmt.Errorf("Error in getIdentitiesFromSearchResult: %v", err)
 		}
+		defer lConn.Close()
 		for i := 0; i < len(memberOf); i += 50 {
 			batch := memberOf[i:min(i+50, len(memberOf))]
 			identityListBatch, err := l.GetGroupIdentity(batch, lConn)
@@ -243,7 +267,6 @@ func (l *LClient) getIdentitiesFromSearchResult(result *ldap.SearchResult) ([]cl
 			}
 			identityList = append(identityList, identityListBatch...)
 		}
-		defer lConn.Close()
 	}
 	return identityList, nil
 }
@@ -290,7 +313,7 @@ func (l *LClient) GetGroupIdentity(groupDN []string, lConn *ldap.Conn) ([]client
 	}
 	query += ")"
 	query = "(&" + filter + query + ")"
-	log.Debugf("Query for pulling user's groups: %s", query)
+	log.Debugf("Querying %d LDAP group memberships", len(groupDN))
 	searchDomain := l.Config.Domain
 	if l.Config.GroupSearchDomain != "" {
 		searchDomain = l.Config.GroupSearchDomain
@@ -302,7 +325,7 @@ func (l *LClient) GetGroupIdentity(groupDN []string, lConn *ldap.Conn) ([]client
 
 	result, err := lConn.Search(search)
 	if err != nil {
-		return []client.Identity{}, fmt.Errorf("Error %v in search query : %v", err, query)
+		return []client.Identity{}, fmt.Errorf("LDAP group search failed: %w", err)
 	}
 
 	l.logResult(result, "GetGroupIdentity")
@@ -311,11 +334,11 @@ func (l *LClient) GetGroupIdentity(groupDN []string, lConn *ldap.Conn) ([]client
 	for _, e := range result.Entries {
 		identity, err := l.attributesToIdentity(e.Attributes, e.DN, c.GroupScope)
 		if err != nil {
-			log.Errorf("Error %v creating identity for group: %s", err, e.DN)
+			log.Warnf("Could not create an LDAP group identity: %v", err)
 			continue
 		}
 		if identity == nil {
-			log.Errorf("Group identity not returned for group: %s", e.DN)
+			log.Warn("LDAP group search returned an empty identity")
 			continue
 		}
 		if !reflect.DeepEqual(identity, nilIdentity) {
@@ -342,9 +365,13 @@ func (l *LClient) savedIdentities(allowedIdentities []string) ([]client.Identity
 
 	for _, id := range allowedIdentities {
 		split := strings.SplitN(id, ":", 2)
+		if len(split) != 2 || strings.TrimSpace(split[0]) == "" || strings.TrimSpace(split[1]) == "" {
+			log.Warn("Ignoring malformed saved LDAP identity")
+			continue
+		}
 		identity, err := l.GetIdentity(split[1], split[0])
 		if err != nil {
-			log.Errorf("Error in getting identity %v: %v", id, err)
+			log.Warnf("Could not resolve a saved LDAP identity: %v", err)
 			continue
 		}
 		if !reflect.DeepEqual(identity, nilIdentity) {
@@ -398,7 +425,7 @@ func (l *LClient) GetIdentity(distinguishedName string, scope string) (client.Id
 	var filter string
 	searchConfig := l.SearchConfig
 	var search *ldap.SearchRequest
-	if c.Scopes[0] != scope && c.Scopes[1] != scope {
+	if c == nil || !validLDAPScope(c.Scopes, scope) {
 		return nilIdentity, fmt.Errorf("Invalid scope")
 	}
 
@@ -418,7 +445,7 @@ func (l *LClient) GetIdentity(distinguishedName string, scope string) (client.Id
 	}
 
 	if !isType(attribs, scope) && !l.hasPermission(attribs, l.Config) {
-		log.Errorf("Failed to get object %s", distinguishedName)
+		log.Warn("LDAP identity was rejected by its object type or permission attributes")
 		return nilIdentity, nil
 	}
 
@@ -428,7 +455,7 @@ func (l *LClient) GetIdentity(distinguishedName string, scope string) (client.Id
 		filter = "(" + c.ObjectClassAttribute + "=" + l.Config.GroupObjectClass + ")"
 	}
 
-	log.Debugf("Query for GetIdentity(%s): %s", distinguishedName, filter)
+	log.Debug("Querying one LDAP identity")
 	lConn, err := l.newConn()
 	if err != nil {
 		return nilIdentity, fmt.Errorf("Error %v creating connection", err)
@@ -471,7 +498,7 @@ func (l *LClient) GetIdentity(distinguishedName string, scope string) (client.Id
 
 	result, err := lConn.Search(search)
 	if err != nil {
-		return nilIdentity, fmt.Errorf("Error %v in search query : %v", err, filter)
+		return nilIdentity, fmt.Errorf("LDAP identity search failed: %w", err)
 	}
 
 	l.logResult(result, "GetIdentity")
@@ -498,6 +525,9 @@ func (l *LClient) GetIdentity(distinguishedName string, scope string) (client.Id
 }
 
 func (l *LClient) attributesToIdentity(attribs []*ldap.EntryAttribute, dnStr string, scope string) (*client.Identity, error) {
+	if l == nil || l.Config == nil || l.ConstantsConfig == nil || !validLDAPScope(l.ConstantsConfig.Scopes, scope) {
+		return nil, fmt.Errorf("invalid LDAP identity configuration or scope")
+	}
 	var externalIDType, accountName, externalID, login string
 	user := false
 
@@ -514,7 +544,9 @@ func (l *LClient) attributesToIdentity(attribs []*ldap.EntryAttribute, dnStr str
 				}
 			}
 			if strings.EqualFold(attr.Name, l.Config.UserLoginField) {
-				login = attr.Values[0]
+				if len(attr.Values) > 0 {
+					login = strings.TrimSpace(attr.Values[0])
+				}
 			}
 		}
 		user = true
@@ -531,13 +563,16 @@ func (l *LClient) attributesToIdentity(attribs []*ldap.EntryAttribute, dnStr str
 				if len(attr.Values) > 0 && attr.Values[0] != "" {
 					login = attr.Values[0]
 				}
-			} else {
-				login = accountName
 			}
 		}
 	} else {
-		log.Errorf("Failed to get attributes for %s", dnStr)
-		return nil, nil
+		return nil, fmt.Errorf("LDAP entry has no supported object class")
+	}
+	if strings.TrimSpace(accountName) == "" {
+		accountName = externalID
+	}
+	if strings.TrimSpace(login) == "" {
+		login = accountName
 	}
 
 	identity := &client.Identity{
@@ -552,6 +587,15 @@ func (l *LClient) attributesToIdentity(attribs []*ldap.EntryAttribute, dnStr str
 	}
 	identity.Resource.Id = externalIDType + ":" + externalID
 	return identity, nil
+}
+
+func validLDAPScope(scopes []string, scope string) bool {
+	for _, candidate := range scopes {
+		if strings.EqualFold(candidate, scope) {
+			return true
+		}
+	}
+	return false
 }
 
 func isType(search []*ldap.EntryAttribute, varType string) bool {
@@ -572,7 +616,7 @@ func GetIdentitySeparator() string {
 	return "#"
 }
 
-//GetUserIdentity returns the "user" from the list of identities
+// GetUserIdentity returns the "user" from the list of identities
 func GetUserIdentity(identities []client.Identity, userType string) (client.Identity, bool) {
 	for _, identity := range identities {
 		if identity.ExternalIdType == userType {
@@ -582,7 +626,7 @@ func GetUserIdentity(identities []client.Identity, userType string) (client.Iden
 	return client.Identity{}, false
 }
 
-//SearchIdentities returns the identity by name
+// SearchIdentities returns the identity by name
 func (l *LClient) SearchIdentities(name string, exactMatch bool) ([]client.Identity, error) {
 	c := l.ConstantsConfig
 	identities := []client.Identity{}
@@ -618,7 +662,7 @@ func (l *LClient) searchUser(name string, exactMatch bool) ([]client.Identity, e
 		query = "(&(" + l.Config.UserSearchField + "=*" + name + "*)(" + c.ObjectClassAttribute + "=" +
 			l.Config.UserObjectClass + "))"
 	}
-	log.Debugf("LDAPIdentityProvider searchUser query: %s", query)
+	log.Debug("Searching LDAP users")
 	return l.searchLdap(query, c.UserScope)
 }
 
@@ -632,7 +676,7 @@ func (l *LClient) searchGroup(name string, exactMatch bool) ([]client.Identity, 
 		query = "(&(" + l.Config.GroupSearchField + "=*" + name + "*)(" + c.ObjectClassAttribute + "=" +
 			l.Config.GroupObjectClass + "))"
 	}
-	log.Debugf("LDAPIdentityProvider searchGroup query: %s", query)
+	log.Debug("Searching LDAP groups")
 	return l.searchLdap(query, c.GroupScope)
 }
 
@@ -662,20 +706,23 @@ func (l *LClient) searchLdap(query string, scope string) ([]client.Identity, err
 	if err != nil {
 		return []client.Identity{}, fmt.Errorf("Error %v creating connection", err)
 	}
+	defer lConn.Close()
 	// Bind before query
 	serviceAccountUsername := getUserExternalID(l.Config.ServiceAccountUsername, l.Config.LoginDomain)
 	err = lConn.Bind(serviceAccountUsername, l.Config.ServiceAccountPassword)
 	if err != nil {
 		return nil, fmt.Errorf("Error %v in ldap bind", err)
 	}
-	defer lConn.Close()
-
 	results, err := lConn.Search(search)
 	if err != nil {
-		ldapErr, ok := reflect.ValueOf(err).Interface().(*ldap.Error)
-		if ok && ldapErr.ResultCode != ldap.LDAPResultNoSuchObject {
-			return []client.Identity{}, fmt.Errorf("When searching ldap from /v1/identity Failed to search: %s, error: %#v", query, err)
+		var ldapErr *ldap.Error
+		if errors.As(err, &ldapErr) && ldapErr.ResultCode == ldap.LDAPResultNoSuchObject {
+			return identities, nil
 		}
+		return []client.Identity{}, fmt.Errorf("LDAP identity search failed: %w", err)
+	}
+	if results == nil {
+		return identities, nil
 	}
 
 	for i := 0; i < len(results.Entries); i++ {
@@ -696,8 +743,16 @@ func (l *LClient) TestLogin(testAuthConfig *model.TestAuthConfig, accessToken st
 	var status int
 	status = 500
 
-	split := strings.SplitN(testAuthConfig.Code, ":", 2)
-	username, password := split[0], split[1]
+	if testAuthConfig == nil {
+		return http.StatusBadRequest, fmt.Errorf("LDAP test configuration is required")
+	}
+	if l == nil || l.ConstantsConfig == nil {
+		return http.StatusServiceUnavailable, fmt.Errorf("LDAP client is not configured")
+	}
+	username, password, err := splitLDAPCredentials(testAuthConfig.Code)
+	if err != nil {
+		return 401, err
+	}
 
 	if username == "" {
 		username = originalLogin
@@ -705,28 +760,13 @@ func (l *LClient) TestLogin(testAuthConfig *model.TestAuthConfig, accessToken st
 
 	externalID := getUserExternalID(username, testAuthConfig.AuthConfig.LdapConfig.LoginDomain)
 
-	if password == "" {
-		return 401, fmt.Errorf("Failed to login, password not provided")
-	}
-
 	ldapServer := testAuthConfig.AuthConfig.LdapConfig.Server
 	ldapPort := testAuthConfig.AuthConfig.LdapConfig.Port
-	ldap.DefaultTimeout = time.Duration(testAuthConfig.AuthConfig.LdapConfig.ConnectionTimeout) * time.Millisecond
 	log.Debug("TestLogin: Now creating Ldap connection")
-	if testAuthConfig.AuthConfig.LdapConfig.TLS {
-		tlsConfig := &tls.Config{RootCAs: l.ConstantsConfig.CAPool, InsecureSkipVerify: false, ServerName: ldapServer}
-		lConn, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort), tlsConfig)
-		if err != nil {
-			return status, fmt.Errorf("Error creating ssl connection: %v", err)
-		}
-	} else {
-		lConn, err = ldap.Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
-		if err != nil {
-			return status, fmt.Errorf("Error creating connection: %v", err)
-		}
+	lConn, err = dialLDAPConnection(&testAuthConfig.AuthConfig.LdapConfig, ldapServer, ldapPort, l.ConstantsConfig.CAPool)
+	if err != nil {
+		return status, err
 	}
-
-	lConn.SetTimeout(time.Duration(testAuthConfig.AuthConfig.LdapConfig.ConnectionTimeout) * time.Millisecond)
 	defer lConn.Close()
 
 	if testAuthConfig.AuthConfig.LdapConfig.ServiceAccountPassword == "" {
@@ -758,7 +798,7 @@ func (l *LClient) TestLogin(testAuthConfig *model.TestAuthConfig, accessToken st
 		samName = strings.SplitN(username, `\`, 2)[1]
 	}
 	query := "(" + testAuthConfig.AuthConfig.LdapConfig.UserLoginField + "=" + ldap.EscapeFilter(samName) + ")"
-	log.Debugf("LDAP Search query: {%s}", query)
+	log.Debug("Testing the LDAP user query")
 
 	testUserSearchAttributes := []string{l.ConstantsConfig.MemberOfAttribute, l.ConstantsConfig.ObjectClassAttribute,
 		testAuthConfig.AuthConfig.LdapConfig.UserObjectClass, testAuthConfig.AuthConfig.LdapConfig.UserLoginField,
@@ -849,6 +889,7 @@ func (l *LClient) RefreshToken(json map[string]string) (model.Token, int, error)
 	if err != nil {
 		return nilToken, status, fmt.Errorf("Error %v creating connection", err)
 	}
+	defer lConn.Close()
 	// Bind before query
 	serviceAccountUsername := getUserExternalID(l.Config.ServiceAccountUsername, l.Config.LoginDomain)
 	err = lConn.Bind(serviceAccountUsername, l.Config.ServiceAccountPassword)
@@ -858,8 +899,6 @@ func (l *LClient) RefreshToken(json map[string]string) (model.Token, int, error)
 		}
 		return nilToken, status, fmt.Errorf("Error %v in ldap bind", err)
 	}
-	defer lConn.Close()
-
 	return l.userRecord(search, lConn, "RefreshToken", "")
 }
 
@@ -875,11 +914,9 @@ func (l *LClient) userRecord(search *ldap.SearchRequest, lConn *ldap.Conn, name 
 	l.logResult(result, method)
 
 	if len(result.Entries) < 1 {
-		log.Errorf("Cannot locate user information for %s", search.Filter)
-		return nilToken, status, nil
+		return nilToken, 401, fmt.Errorf("LDAP authentication succeeded but no user record was found")
 	} else if len(result.Entries) > 1 {
-		log.Error("More than one result")
-		return nilToken, status, nil
+		return nilToken, 403, fmt.Errorf("LDAP authentication returned more than one user record")
 	}
 
 	identityList, err := l.getIdentitiesFromSearchResult(result)
@@ -903,21 +940,8 @@ func (l *LClient) userRecord(search *ldap.SearchRequest, lConn *ldap.Conn, name 
 }
 
 func (l *LClient) logResult(result *ldap.SearchResult, name string) {
-	if log.GetLevel() != log.DebugLevel {
+	if log.GetLevel() != log.DebugLevel || result == nil {
 		return
 	}
-	for idx, e := range result.Entries {
-		buffer := bytes.Buffer{}
-		for _, v := range e.Attributes {
-			buffer.WriteString(v.Name)
-			buffer.WriteString(":[")
-			for i := 0; i < (len(v.Values) - 1); i++ {
-				buffer.WriteString(v.Values[i])
-				buffer.WriteString(" ")
-			}
-			buffer.WriteString(v.Values[len(v.Values)-1])
-			buffer.WriteString("] ")
-		}
-		log.Debugf("(%s) Query Result %v: DN: %v, Attributes: %v", name, idx, e.DN, buffer.String())
-	}
+	log.Debugf("LDAP operation %s returned %d entries", name, len(result.Entries))
 }

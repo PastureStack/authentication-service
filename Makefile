@@ -1,23 +1,33 @@
+.RECIPEPREFIX := >
 TARGETS := $(shell ls scripts)
 
+DAPPER_IMAGE ?= pasturestack-authentication-service-dapper:ubuntu26
+DAPPER_HOST_ARCH ?= amd64
+DAPPER_SOURCE ?= /go/src/github.com/PastureStack/authentication-service
+
 .dapper:
-	@echo Downloading dapper
-	@curl -sL https://releases.rancher.com/dapper/latest/dapper-`uname -s`-`uname -m` > .dapper.tmp
-	@@chmod +x .dapper.tmp
-	@./.dapper.tmp -v
-	@mv .dapper.tmp .dapper
+>docker build \
+>  --network "$${DOCKER_BUILD_NETWORK:-host}" \
+>  --build-arg DAPPER_HOST_ARCH=$(DAPPER_HOST_ARCH) \
+>  -t $(DAPPER_IMAGE) \
+>  -f Dockerfile.dapper .
 
 $(TARGETS): .dapper
-	./.dapper $@
+>docker run --rm \
+>  --user "$$(id -u):$$(id -g)" \
+>  -v $(CURDIR):$(DAPPER_SOURCE) \
+>  -e ARCH=$(DAPPER_HOST_ARCH) \
+>  -e TAG \
+>  -e DOCKER_BUILD_NETWORK \
+>  -e VERSION_OVERRIDE \
+>  $(DAPPER_IMAGE) $@
 
-trash: .dapper
-	./.dapper -m bind trash
+trash: deps
 
-trash-keep: .dapper
-	./.dapper -m bind trash -k
+trash-keep: deps
 
-deps: trash
+deps: vendor
 
 .DEFAULT_GOAL := ci
 
-.PHONY: $(TARGETS)
+.PHONY: .dapper $(TARGETS) trash trash-keep deps
