@@ -4,7 +4,7 @@ import (
 	"github.com/rancher/go-rancher/v2"
 )
 
-//Token structure defines all properties that can be present in a token
+// Token structure defines all properties that can be present in a token
 type Token struct {
 	client.Resource
 	Type              string            `json:"tokenType"`

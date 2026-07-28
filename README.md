@@ -1,49 +1,50 @@
-# rancher-auth-service
-A REST Service listening on port 8090 that implements authentication Identity providers to support the Rancher Auth Framework. Initial version comes with github support. It uses the pluggable provider model to implement other providers later. 
+# PastureStack Authentication Service
 
+Authentication Service provides the compatible external-identity-provider,
+token, identity lookup, reload, OpenID Connect, and SAML endpoints required by
+the preserved control-platform authentication flow.
 
-APIs exposed are:
+PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.
 
-POST /v1-rancher-auth/config
-This will save the provided config to the Cattle Database as settings and initialize the auth provider with the given config
+**Upstream:** [`rancher/rancher-auth-service`](https://github.com/rancher/rancher-auth-service). This GitHub fork preserves upstream history, authorship, dates, tags, licenses, and bundled dependency notices; PastureStack maintenance is consolidated into one commit after the preserved upstream boundary.
 
-GET /v1-rancher-auth/config
-This will list the auth config from settings table in Cattle Database
+## Project status
 
-POST /v1-rancher-auth/reload
-This will read the auth config from settings table in Cattle Database and re-initialize the auth provider
+The current compatibility release retains the existing Ubuntu 26.04,
+Go 1.26.4, Docker 29.4.2, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
+dependency, and build maintenance. It adds a provider-neutral OpenID Connect
+authorization-code client with discovery, PKCE S256, nonce validation,
+asymmetric ID-token verification, UserInfo subject matching, custom
+certificate-authority support, and a test-before-enable recovery flow.
+Product-owned imports, executable names, CLI settings, client variables, and
+operator messages use PastureStack naming.
 
-POST /v1-rancher-auth/token  
-This API authenticates with the actual auth provider(like github) and returns a JWT token to be used for further communication with the service
+## Configuration
 
-GET /v1-rancher-auth/me/identities
-This API lists the user details and his/her group memberships, for the user identified by the token set in Authorization header
+Use `--platform-url`, `--platform-access-key`, and `--platform-secret-key`, or their `PLATFORM_*` environment variables. Historical `cattle-*` and `CATTLE_*` aliases remain for migration. RSA signing keys and the encrypted authentication configuration key are required. Set `PASTURESTACK_LOCALE=en-US` or `zh-TW` for operator messages.
 
-GET /v1-rancher-auth/identities?name=
-This API searches for a user/group by name on the backend auth provider
+## Build and test
 
-GET /v1-rancher-auth/identities?externalId=&externalIdType=
-This API searches for a user/group by Id and type(user/group/team) on the backend auth provider
+From a Docker-capable Linux host:
 
-# Build the go service
-godep go build
+```sh
+make test
+make build
+make package
+```
 
-# Run the go service
+Set `VERSION_OVERRIDE=v0.2.2` for the reviewed OpenID Connect compatibility
+release. Packaging produces the deterministic, versioned
+`authentication-service-0.2.2-linux-amd64.tar.xz` asset. The manually
+dispatched release workflow runs the full test and validation suite twice,
+requires byte-identical packages, and publishes the reviewed archive on
+GitHub. PastureStack Server consumes that immutable release directly, so
+operators do not need to host an artifact mirror.
 
-Usage of ./rancher-auth-service:
-  -debug
-    	Debug
-  -log string
-    	Log file
-  -privateKeyFile string
-    	Path of file containing RSA Private key 
-  -publicKeyFile string
-    	Path of file containing RSA Public key
+See [OpenID Connect](docs/openid-connect.md),
+[COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
+[ORIGIN.md](ORIGIN.md).
 
-The RSA public and private keys are needed to sign the JWT token provided by /token API
+## License and attribution
 
-# Required Environment Variables:
-
-Set the Cattle service account and secret key to the Environment
-export CATTLE_ACCESS_KEY= <service account key>
-export CATTLE_SECRET_KEY= <service account secret key>
+The inherited project remains licensed under [Apache License 2.0](LICENSE). Copyright and attribution for inherited work and vendored dependencies remain with their respective authors and contributors. PastureStack contributors claim authorship only for their own changes.

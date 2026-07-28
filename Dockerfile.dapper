@@ -1,33 +1,74 @@
-FROM ubuntu:16.04
-# FROM arm=armhf/ubuntu:16.04
+FROM ubuntu:26.04
 
-ARG DAPPER_HOST_ARCH
+ARG DAPPER_HOST_ARCH=amd64
+ARG GO_VERSION=1.26.4
+ARG DOCKER_VERSION=29.4.2
+ARG GO_LINUX_AMD64_SHA256=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
+ARG GO_LINUX_ARM64_SHA256=ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768
+
+ENV DEBIAN_FRONTEND=noninteractive
 ENV HOST_ARCH=${DAPPER_HOST_ARCH} ARCH=${DAPPER_HOST_ARCH}
 
-RUN apt-get update && apt-get install -y pkg-config
-
-RUN apt-get update && \
-    apt-get install -y gcc make ca-certificates git wget curl vim less file && \
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+RUN set -eux; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+        -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" {} +; \
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        file \
+        gcc \
+        git \
+        libc6-dev \
+        make \
+        tar \
+        xz-utils && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -f /usr/bin/pebble && \
     rm -f /bin/sh && ln -s /bin/bash /bin/sh
 
-ENV GOLANG_ARCH_amd64=amd64 GOLANG_ARCH_arm=armv6l GOLANG_ARCH=GOLANG_ARCH_${ARCH} \
-    GOPATH=/go PATH=/go/bin:/usr/local/go/bin:${PATH} SHELL=/bin/bash
+ENV GOPATH=/go \
+    PATH=/go/bin:/usr/local/go/bin:${PATH} \
+    SHELL=/bin/bash \
+    GO111MODULE=off \
+    GOCACHE=/tmp/go-build-cache \
+    GOTELEMETRY=off \
+    XDG_CONFIG_HOME=/tmp/go-config \
+    GIT_CONFIG_GLOBAL=/tmp/gitconfig
 
-RUN wget -O - https://storage.googleapis.com/golang/go1.10.1.linux-${!GOLANG_ARCH}.tar.gz | tar -xzf - -C /usr/local && \
-    go get github.com/rancher/trash && go get github.com/golang/lint/golint
+RUN case "${DAPPER_HOST_ARCH}" in \
+        amd64) go_arch=amd64; go_sha="${GO_LINUX_AMD64_SHA256}" ;; \
+        arm64) go_arch=arm64; go_sha="${GO_LINUX_ARM64_SHA256}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" && \
+    echo "${go_sha}  /tmp/go.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/go.tgz -C /usr/local && \
+    rm -f /tmp/go.tgz && \
+    go version
 
-ENV DOCKER_URL_amd64=https://get.docker.com/builds/Linux/x86_64/docker-1.10.3 \
-    DOCKER_URL_arm=https://github.com/rancher/docker/releases/download/v1.10.3-ros1/docker-1.10.3_arm \
-    DOCKER_URL=DOCKER_URL_${ARCH}
+RUN case "${DAPPER_HOST_ARCH}" in \
+        amd64) docker_arch=x86_64 ;; \
+        arm64) docker_arch=aarch64 ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${docker_arch}/docker-${DOCKER_VERSION}.tgz" | \
+        tar xzf - -C /usr/bin --strip-components=1 docker/docker && \
+    chmod +x /usr/bin/docker && \
+    docker --version
 
-RUN wget -O - ${!DOCKER_URL} > /usr/bin/docker && chmod +x /usr/bin/docker
-
-ENV DAPPER_SOURCE /go/src/github.com/rancher/rancher-auth-service/
-ENV DAPPER_OUTPUT ./bin ./dist
-ENV DAPPER_DOCKER_SOCKET true
-ENV TRASH_CACHE ${DAPPER_SOURCE}/.trash-cache
-ENV HOME ${DAPPER_SOURCE}
+ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/authentication-service/
+ENV DAPPER_OUTPUT="./bin ./dist"
+ENV DAPPER_DOCKER_SOCKET=true
+ENV HOME=/tmp
 WORKDIR ${DAPPER_SOURCE}
+
+RUN git config --system --add safe.directory ${DAPPER_SOURCE} && \
+    git config --system --add safe.directory /go/src/github.com/PastureStack/authentication-service
 
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]

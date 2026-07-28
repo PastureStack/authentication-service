@@ -1,23 +1,24 @@
 package providers
 
 import (
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/providers/github"
+	ad "github.com/PastureStack/authentication-service/providers/ldap/ad"
+	"github.com/PastureStack/authentication-service/providers/oidc"
+	"github.com/PastureStack/authentication-service/providers/shibboleth"
 	v1client "github.com/rancher/go-rancher/client"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/providers/github"
-	ad "github.com/rancher/rancher-auth-service/providers/ldap/ad"
-	"github.com/rancher/rancher-auth-service/providers/shibboleth"
 )
 
-//Providers map
+// Providers map
 var Providers []string
 
-//RegisterProviders creates object of type driver for every request
+// RegisterProviders creates object of type driver for every request
 func RegisterProviders() {
-	Providers = []string{"githubconfig", "shibbolethconfig", "ldapconfig"}
+	Providers = []string{"githubconfig", "shibbolethconfig", "ldapconfig", "oidcconfig"}
 }
 
-//IdentityProvider interfacse defines what methods an identity provider should implement
+// IdentityProvider interfacse defines what methods an identity provider should implement
 type IdentityProvider interface {
 	GetName() string
 	GetUserType() string
@@ -41,7 +42,15 @@ type IdentityProvider interface {
 	IsIdentityLookupSupported() bool
 }
 
-//GetProvider returns an instance of an identyityProvider by name
+// TokenTestingProvider is implemented by redirect-based providers that can
+// validate an authorization response before the active login provider is
+// changed. This keeps the current authentication method available until the
+// replacement has completed a real sign-in.
+type TokenTestingProvider interface {
+	TestToken(testAuthConfig *model.TestAuthConfig, accessToken string, originalLogin string) (model.Token, int, error)
+}
+
+// GetProvider returns an instance of an identyityProvider by name
 func GetProvider(name string) (IdentityProvider, error) {
 	switch name {
 	case "githubconfig":
@@ -50,12 +59,14 @@ func GetProvider(name string) (IdentityProvider, error) {
 		return shibboleth.InitializeProvider()
 	case "ldapconfig":
 		return ad.InitializeProvider()
+	case "oidcconfig":
+		return oidc.InitializeProvider()
 	default:
 		return nil, nil
 	}
 }
 
-//IsProviderSupported returns if provider by name is supported
+// IsProviderSupported returns if provider by name is supported
 func IsProviderSupported(name string) bool {
 	switch name {
 	case "githubconfig":
@@ -63,6 +74,8 @@ func IsProviderSupported(name string) bool {
 	case "shibbolethconfig":
 		return true
 	case "ldapconfig":
+		return true
+	case "oidcconfig":
 		return true
 	default:
 		return false
