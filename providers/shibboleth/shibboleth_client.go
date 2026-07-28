@@ -14,13 +14,22 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
-	"github.com/rancher/rancher-auth-service/model"
+	log "github.com/sirupsen/logrus"
 )
 
-//SPClient implements a client for shibboleth and the saml library
+func allowInsecureIDPMetadataTLS() bool {
+	value := strings.EqualFold(os.Getenv("PASTURESTACK_AUTH_ALLOW_INSECURE_IDP_METADATA_TLS"), "true") ||
+		strings.EqualFold(os.Getenv("CATTLE_AUTH_ALLOW_INSECURE_IDP_METADATA_TLS"), "true")
+	if value {
+		log.Warn("Insecure IDP metadata TLS is enabled; Shibboleth metadata certificate verification is disabled")
+	}
+	return value
+}
+
+// SPClient implements a client for shibboleth and the saml library
 type SPClient struct {
 	config *model.ShibbolethConfig
 }
@@ -115,7 +124,7 @@ func (spclient *SPClient) initializeSPClient(configToSet *model.ShibbolethConfig
 		}
 	}
 
-	actURL, err := url.Parse(configToSet.RancherAPIHost + "/v1-auth")
+	actURL, err := url.Parse(configToSet.PlatformAPIHost + "/v1-auth")
 	if err != nil {
 		return fmt.Errorf("error in parsing URL")
 	}
@@ -144,7 +153,10 @@ func (spclient *SPClient) initializeSPClient(configToSet *model.ShibbolethConfig
 
 	if idpURL != "" {
 		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: allowInsecureIDPMetadataTLS(),
+				MinVersion:         tls.VersionTLS12,
+			},
 		}
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get(idpURL)
@@ -172,7 +184,7 @@ func (spclient *SPClient) initializeSPClient(configToSet *model.ShibbolethConfig
 		}
 	}
 
-	rsp := &model.RancherSamlServiceProvider{
+	rsp := &model.PlatformSamlServiceProvider{
 		ServiceProvider: *sp,
 		ClientState:     cookieStore,
 	}

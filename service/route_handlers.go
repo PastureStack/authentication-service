@@ -8,26 +8,28 @@ import (
 	"encoding/xml"
 	"fmt"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/server"
 	"github.com/crewjam/saml"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rancher/go-rancher/api"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/server"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	redirectBackBase  = "redirectBackBase"
-	redirectBackPath  = "redirectBackPath"
-	postSamlTokenHTML = "/v1-auth/saml/tokenhtml"
-	tpl               = `
+	maxAuthRequestSize = 1 << 20
+	redirectBackBase   = "redirectBackBase"
+	redirectBackPath   = "redirectBackPath"
+	postSamlTokenHTML  = "/v1-auth/saml/tokenhtml"
+	tpl                = `
 <!DOCTYPE html>
 <html>
   <head>
@@ -47,7 +49,7 @@ const (
 </html>`
 )
 
-//CreateToken is a handler for route /token and returns the jwt token after authenticating the user
+// CreateToken is a handler for route /token and returns the jwt token after authenticating the user
 func CreateToken(w http.ResponseWriter, r *http.Request) {
 	bytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -95,7 +97,7 @@ func CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//GetIdentities is a handler for route /me/identities and returns group memberships and details of the user
+// GetIdentities is a handler for route /me/identities and returns group memberships and details of the user
 func GetIdentities(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -127,7 +129,7 @@ func GetIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//SearchIdentities is a handler for route /identities and filters (id + type or name) and returns the search results using the passed filters
+// SearchIdentities is a handler for route /identities and filters (id + type or name) and returns the search results using the passed filters
 func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -186,7 +188,7 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//UpdateConfig is a handler for POST /config, loads the provider with the config and saves the config back to Cattle database
+// UpdateConfig handles POST /config, loads the provider, and saves the configuration to the control-plane database.
 func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	bytes, err := ioutil.ReadAll(r.Body)
@@ -230,7 +232,7 @@ func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//GetConfig is a handler for GET /config, lists the provider config
+// GetConfig is a handler for GET /config, lists the provider config
 func GetConfig(w http.ResponseWriter, r *http.Request) {
 	apiContext := api.GetApiContext(r)
 	authHeader := r.Header.Get("Authorization")
@@ -256,7 +258,7 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//Reload is a handler for POST /reloadconfig, reloads the config from Cattle database and initializes the provider
+// Reload handles POST /reloadconfig, reloads configuration from the control-plane database, and initializes the provider.
 func Reload(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("Reload called")
 	_, err := server.Reload(false)
@@ -283,7 +285,7 @@ func addErrorToRedirect(redirectURL string, code string) string {
 	return redirectURL
 }
 
-//GetRedirectURL gets the redirect URL
+// GetRedirectURL gets the redirect URL
 func GetRedirectURL(w http.ResponseWriter, r *http.Request) {
 	redirectResponse, err := server.GetRedirectURL()
 	if err == nil {
@@ -297,7 +299,29 @@ func GetRedirectURL(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//DoSamlLogout redirects to Saml Logout
+// PrepareRedirectURL validates a proposed redirect-based provider without
+// replacing the active authentication method.
+func PrepareRedirectURL(w http.ResponseWriter, r *http.Request) {
+	body, err := readAuthRequestBody(r)
+	if err != nil {
+		ReturnHTTPError(w, r, http.StatusBadRequest, fmt.Sprintf("%v", err))
+		return
+	}
+	var authConfig model.AuthConfig
+	if err := json.Unmarshal(body, &authConfig); err != nil {
+		ReturnHTTPError(w, r, http.StatusBadRequest, "Invalid authentication configuration")
+		return
+	}
+	response, err := server.PrepareProvider(authConfig)
+	if err != nil {
+		ReturnHTTPError(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("%v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// DoSamlLogout redirects to Saml Logout
 func DoSamlLogout(w http.ResponseWriter, r *http.Request) {
 	if server.SamlServiceProvider != nil {
 		if server.SamlServiceProvider.ServiceProvider.IDPMetadata != nil {
@@ -337,10 +361,10 @@ func TestLogin(w http.ResponseWriter, r *http.Request) {
 		accessToken = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	bytes, err := ioutil.ReadAll(r.Body)
+	bytes, err := readAuthRequestBody(r)
 	if err != nil {
 		log.Errorf("TestLogin failed with error: %v", err)
-		ReturnHTTPError(w, r, http.StatusBadRequest, "Bad Request, Please check the request content")
+		ReturnHTTPError(w, r, http.StatusBadRequest, fmt.Sprintf("%v", err))
 		return
 	}
 	var testAuthConfig model.TestAuthConfig
@@ -358,14 +382,27 @@ func TestLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := server.TestLogin(testAuthConfig, accessToken, token)
+	testToken, status, err := server.TestLogin(testAuthConfig, accessToken, token)
 	if err != nil {
 		log.Errorf("TestLogin GetProvider failed with error: %v", err)
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
 		ReturnHTTPError(w, r, status, fmt.Sprintf("%v", err))
+		return
 	}
+	api.GetApiContext(r).Write(&testToken)
+}
+
+func readAuthRequestBody(r *http.Request) ([]byte, error) {
+	body, err := ioutil.ReadAll(io.LimitReader(r.Body, maxAuthRequestSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the authentication request")
+	}
+	if len(body) > maxAuthRequestSize {
+		return nil, fmt.Errorf("authentication request exceeds %d bytes", maxAuthRequestSize)
+	}
+	return body, nil
 }
 
 // HandleSamlLogin is the endpoint for /saml/login endpoint
@@ -378,16 +415,16 @@ func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query() != nil {
 		redirectBackBaseValue = r.URL.Query().Get(redirectBackBase)
 		if redirectBackBaseValue == "" {
-			redirectBackBaseValue = server.GetRancherAPIHost()
+			redirectBackBaseValue = server.GetPlatformAPIHost()
 		}
 	} else {
-		redirectBackBaseValue = server.GetRancherAPIHost()
+		redirectBackBaseValue = server.GetPlatformAPIHost()
 	}
 
 	if !isWhitelisted(redirectBackBaseValue, s.RedirectWhitelist) {
-		log.Errorf("Cannot redirect to anything other than whitelisted domains and rancher api host")
+		log.Errorf("Cannot redirect outside whitelisted domains and the platform API host")
 		redirectBackPathValue := r.URL.Query().Get(redirectBackPath)
-		redirectURL := server.GetSamlRedirectURL(server.GetRancherAPIHost(), redirectBackPathValue)
+		redirectURL := server.GetSamlRedirectURL(server.GetPlatformAPIHost(), redirectBackPathValue)
 		redirectURL = addErrorToRedirect(redirectURL, "422")
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
@@ -416,10 +453,10 @@ func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
 	relayState := base64.URLEncoding.EncodeToString(randomBytes(42))
 
 	secretBlock := x509.MarshalPKCS1PrivateKey(serviceProvider.Key)
-	state := jwt.New(jwt.SigningMethodHS256)
-	claims := state.Claims.(jwt.MapClaims)
-	claims["id"] = req.ID
-	claims["uri"] = r.URL.String()
+	state := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id":  req.ID,
+		"uri": r.URL.String(),
+	})
 	signedState, err := state.SignedString(secretBlock)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -476,22 +513,18 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFoundHandler().ServeHTTP(w, r)
 }
 
-func getPossibleRequestIDs(r *http.Request, s *model.RancherSamlServiceProvider) []string {
+func getPossibleRequestIDs(r *http.Request, s *model.PlatformSamlServiceProvider) []string {
 	rv := []string{}
 	for _, value := range s.ClientState.GetStates(r) {
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwt.SigningMethodHS256.Name},
-		}
-		token, err := jwtParser.Parse(value, func(t *jwt.Token) (interface{}, error) {
-			secretBlock := x509.MarshalPKCS1PrivateKey(s.ServiceProvider.Key)
-			return secretBlock, nil
-		})
-		if err != nil || !token.Valid {
+		secretBlock := x509.MarshalPKCS1PrivateKey(s.ServiceProvider.Key)
+		claims, err := parseSamlState(value, secretBlock)
+		if err != nil {
 			log.Debugf("... invalid token %s", err)
 			continue
 		}
-		claims := token.Claims.(jwt.MapClaims)
-		rv = append(rv, claims["id"].(string))
+		if id, ok := stringClaim(claims, "id"); ok {
+			rv = append(rv, id)
+		}
 	}
 
 	return rv
@@ -505,9 +538,9 @@ func randomBytes(n int) []byte {
 	return rv
 }
 
-func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *model.RancherSamlServiceProvider) (redirectBackBaseValue string,
+func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *model.PlatformSamlServiceProvider) (redirectBackBaseValue string,
 	redirectBackPathValue string) {
-	redirectBackBaseValue = server.GetRancherAPIHost()
+	redirectBackBaseValue = server.GetPlatformAPIHost()
 	redirectBackPathValue = "/login/shibboleth-auth"
 
 	if serviceProvider.ServiceProvider.Key == nil {
@@ -528,27 +561,21 @@ func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *
 			return
 		}
 
-		jwtParser := jwt.Parser{
-			ValidMethods: []string{jwt.SigningMethodHS256.Name},
-		}
-		state, err := jwtParser.Parse(stateValue, func(t *jwt.Token) (interface{}, error) {
-			return secretBlock, nil
-		})
-		if err != nil || !state.Valid {
-			log.Errorf("Cannot decode state JWT: %s (%s)", err, stateValue)
+		claims, err := parseSamlState(stateValue, secretBlock)
+		if err != nil {
+			log.Errorf("Cannot decode state JWT: %s", err)
 			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
 			redirectURL = addErrorToRedirect(redirectURL, "403")
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
-		claims := state.Claims.(jwt.MapClaims)
-		if claims == nil {
+		redirectURI, ok := stringClaim(claims, "uri")
+		if !ok {
 			redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
 			redirectURL = addErrorToRedirect(redirectURL, "403")
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
-		redirectURI := claims["uri"].(string)
 		log.Debugf("RelayState used to get redirect params: %v", relayState)
 		log.Debugf("redirectURI from claims: %v", redirectURI)
 		query, err := url.Parse(redirectURI)
@@ -577,20 +604,47 @@ func GetRedirectParams(w http.ResponseWriter, r *http.Request, serviceProvider *
 	return redirectBackBaseValue, redirectBackPathValue
 }
 
+func parseSamlState(value string, secretBlock []byte) (jwt.MapClaims, error) {
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	token, err := parser.ParseWithClaims(value, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return secretBlock, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("state token is not valid")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims == nil {
+		return nil, fmt.Errorf("state token claims are invalid")
+	}
+	return claims, nil
+}
+
+func stringClaim(claims jwt.MapClaims, key string) (string, bool) {
+	value, found := claims[key]
+	if !found {
+		return "", false
+	}
+	valueString, ok := value.(string)
+	return valueString, ok
+}
+
 // HandleSamlAssertion processes/handles the assertion obtained by the POST to /saml/acs from IdP
-func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml.Assertion, serviceProvider *model.RancherSamlServiceProvider) {
+func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml.Assertion, serviceProvider *model.PlatformSamlServiceProvider) {
 	redirectBackBaseValue, redirectBackPathValue := GetRedirectParams(w, r, serviceProvider)
 	log.Debugf("redirectBackBaseValue, redirectBackPathValue from GetRedirectParams: %v, %v", redirectBackBaseValue, redirectBackPathValue)
 
 	if redirectBackBaseValue == "" {
-		redirectBackBaseValue = server.GetRancherAPIHost()
+		redirectBackBaseValue = server.GetPlatformAPIHost()
 	}
 
 	redirectURL := server.GetSamlRedirectURL(redirectBackBaseValue, redirectBackPathValue)
 
 	if !isWhitelisted(redirectBackBaseValue, serviceProvider.RedirectWhitelist) {
-		log.Errorf("Cannot redirect to anything other than whitelisted domains and rancher api host")
-		redirectURL := server.GetSamlRedirectURL(server.GetRancherAPIHost(), redirectBackPathValue)
+		log.Errorf("Cannot redirect outside whitelisted domains and the platform API host")
+		redirectURL := server.GetSamlRedirectURL(server.GetPlatformAPIHost(), redirectBackPathValue)
 		redirectURL = addErrorToRedirect(redirectURL, "422")
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
@@ -610,7 +664,7 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 		}
 	}
 
-	rancherAPI := server.GetRancherAPIHost()
+	platformAPI := server.GetPlatformAPIHost()
 	//get the SAML data, create a jwt token and POST to /v1/token with code = "jwt token"
 	mapB, _ := json.Marshal(samlData)
 
@@ -618,13 +672,13 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 	inputJSON["code"] = string(mapB)
 	outputJSON := make(map[string]interface{})
 
-	tokenURL := rancherAPI + "/v1/token"
+	tokenURL := platformAPI + "/v1/token"
 	log.Debugf("HandleSamlAssertion: tokenURL %v ", tokenURL)
 
-	err := server.RancherClient.Post(tokenURL, inputJSON, &outputJSON)
+	err := server.PlatformClient.Post(tokenURL, inputJSON, &outputJSON)
 	if err != nil {
-		//failed to get token from cattle
-		log.Errorf("HandleSamlAssertion failed to Get token from cattle with error %v", err.Error())
+		// Failed to get a token from the control plane.
+		log.Errorf("HandleSamlAssertion failed to get a platform token: %v", err.Error())
 		if strings.Contains(err.Error(), "401") {
 			//add error=401 query param to redirect
 			redirectURL = addErrorToRedirect(redirectURL, "401")
@@ -692,11 +746,12 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 
 	// else, if redirectBackBase is same as the current URL, continue and set this token as cookie
 	tokenCookie := &http.Cookie{
-		Name:   "token",
-		Value:  jwt,
-		Secure: secure,
-		MaxAge: 0,
-		Path:   "/",
+		Name:     "token",
+		Value:    jwt,
+		Secure:   secure,
+		HttpOnly: true,
+		MaxAge:   0,
+		Path:     "/",
 	}
 	http.SetCookie(w, tokenCookie)
 	log.Debugf("JWT token: %v", jwt)
@@ -751,11 +806,12 @@ func PostSamlTokenHTML(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("PostSamlTokenHTML: secure attribute in the post form: %v, and original: %v", secure, secureStr)
 
 	tokenCookie := &http.Cookie{
-		Name:   "token",
-		Value:  token,
-		Secure: secure,
-		MaxAge: 0,
-		Path:   "/",
+		Name:     "token",
+		Value:    token,
+		Secure:   secure,
+		HttpOnly: true,
+		MaxAge:   0,
+		Path:     "/",
 	}
 	http.SetCookie(w, tokenCookie)
 	log.Debugf("redirecting the user with cookie %v to %v", tokenCookie, finalRedirectURL)
@@ -765,7 +821,7 @@ func PostSamlTokenHTML(w http.ResponseWriter, r *http.Request) {
 
 func isWhitelisted(redirectBackBaseValue string, redirectWhitelist string) bool {
 	var redirectBackBaseDomainNonPort string
-	if redirectBackBaseValue == server.GetRancherAPIHost() {
+	if redirectBackBaseValue == server.GetPlatformAPIHost() {
 		return true
 	}
 	redirectURL, err := url.Parse(redirectBackBaseValue)

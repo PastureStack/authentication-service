@@ -29,8 +29,8 @@
   name = "github.com/dchest/uniuri"
 
 [[constraint]]
-  name = "github.com/dgrijalva/jwt-go"
-  version = "3.0.0"
+  name = "github.com/golang-jwt/jwt/v5"
+  version = "5.3.1"
 
 [[constraint]]
   branch = "master"

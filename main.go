@@ -2,14 +2,16 @@ package main
 
 import (
 	"fmt"
-	log "github.com/Sirupsen/logrus"
-	"github.com/rancher/rancher-auth-service/providers"
-	"github.com/rancher/rancher-auth-service/server"
-	"github.com/rancher/rancher-auth-service/service"
+	"github.com/PastureStack/authentication-service/providers"
+	"github.com/PastureStack/authentication-service/server"
+	"github.com/PastureStack/authentication-service/service"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"net/http"
 	"os"
 )
+
+var VERSION = "dev"
 
 func beforeApp(c *cli.Context) error {
 	if c.GlobalBool("verbose") {
@@ -20,13 +22,20 @@ func beforeApp(c *cli.Context) error {
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "rancher-auth-service"
-	app.Usage = "Rancher auth service supporting external auth providers"
-	app.Author = "Rancher Labs, Inc."
+	app.Name = "pasturestack-authentication-service"
+	app.Version = VERSION
+	app.Usage = "Authentication service supporting external identity providers"
+	app.Author = "PastureStack community"
 	app.Email = ""
 	app.Before = beforeApp
 	app.Action = StartService
 	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "locale",
+			Value:  "en-US",
+			Usage:  "Operator message locale: en-US or zh-TW",
+			EnvVar: "PASTURESTACK_LOCALE",
+		},
 		cli.StringFlag{
 			Name: "rsa-public-key-file",
 			Usage: fmt.Sprintf(
@@ -54,25 +63,25 @@ func main() {
 			EnvVar: "RSA_PRIVATE_KEY_CONTENTS",
 		},
 		cli.StringFlag{
-			Name: "cattle-url",
+			Name: "platform-url,cattle-url",
 			Usage: fmt.Sprintf(
-				"Specify Cattle endpoint URL",
+				"Specify the control-platform endpoint URL",
 			),
-			EnvVar: "CATTLE_URL",
+			EnvVar: "PLATFORM_URL,CATTLE_URL",
 		},
 		cli.StringFlag{
-			Name: "cattle-access-key",
+			Name: "platform-access-key,cattle-access-key",
 			Usage: fmt.Sprintf(
-				"Specify Cattle access key",
+				"Specify the control-platform access key",
 			),
-			EnvVar: "CATTLE_ACCESS_KEY",
+			EnvVar: "PLATFORM_ACCESS_KEY,CATTLE_ACCESS_KEY",
 		},
 		cli.StringFlag{
-			Name: "cattle-secret-key",
+			Name: "platform-secret-key,cattle-secret-key",
 			Usage: fmt.Sprintf(
-				"Specify Cattle secret key",
+				"Specify the control-platform secret key",
 			),
-			EnvVar: "CATTLE_SECRET_KEY",
+			EnvVar: "PLATFORM_SECRET_KEY,CATTLE_SECRET_KEY",
 		},
 		cli.BoolFlag{
 			Name: "debug",
@@ -117,6 +126,10 @@ func main() {
 }
 
 func StartService(c *cli.Context) {
+	locale := c.GlobalString("locale")
+	if locale != "en-US" && locale != "zh-TW" {
+		log.Fatalf("unsupported locale %q; use en-US or zh-TW", locale)
+	}
 
 	server.SetEnv(c)
 	providers.RegisterProviders()
@@ -130,7 +143,7 @@ func StartService(c *cli.Context) {
 	}
 	log.SetFormatter(textFormatter)
 
-	log.Info("Starting Rancher Auth service")
+	log.Info(operatorMessage(locale, "start"))
 
 	err := server.UpgradeCase()
 	if err != nil {
@@ -148,4 +161,12 @@ func StartService(c *cli.Context) {
 	log.Info("Listening on ", c.GlobalString("listen"))
 	log.Fatal(http.ListenAndServe(c.GlobalString("listen"), router))
 
+}
+
+func operatorMessage(locale, key string) string {
+	messages := map[string]map[string]string{
+		"en-US": {"start": "Starting PastureStack authentication service"},
+		"zh-TW": {"start": "正在啟動 PastureStack 身分驗證服務"},
+	}
+	return messages[locale][key]
 }
