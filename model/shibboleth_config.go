@@ -6,7 +6,7 @@ import (
 	"github.com/rancher/go-rancher/v2"
 )
 
-//ShibbolethConfig stores the shibboleth config
+// ShibbolethConfig stores the shibboleth config
 type ShibbolethConfig struct {
 	client.Resource
 	IDPMetadataURL     string `json:"idpMetadataUrl"`
@@ -21,12 +21,12 @@ type ShibbolethConfig struct {
 	IDPMetadataFilePath      string
 	SPSelfSignedCertFilePath string
 	SPSelfSignedKeyFilePath  string
-	RancherAPIHost           string
+	PlatformAPIHost          string
 
-	SamlServiceProvider *RancherSamlServiceProvider
+	SamlServiceProvider *PlatformSamlServiceProvider
 }
 
-type RancherSamlServiceProvider struct {
+type PlatformSamlServiceProvider struct {
 	ServiceProvider   saml.ServiceProvider
 	ClientState       samlsp.ClientState
 	RedirectBackPath  string

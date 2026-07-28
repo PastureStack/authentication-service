@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/authentication-service/model"
 	v1client "github.com/rancher/go-rancher/client"
 	"github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
+	log "github.com/sirupsen/logrus"
 )
 
-//Constants for shibboleth
+// Constants for shibboleth
 const (
 	Name                      = "shibboleth"
 	Config                    = Name + "config"
@@ -30,7 +30,7 @@ const (
 func init() {
 }
 
-//InitializeProvider returns a new instance of the provider
+// InitializeProvider returns a new instance of the provider
 func InitializeProvider() (*SProvider, error) {
 	shibClient := &SPClient{}
 	shibProvider := &SProvider{}
@@ -38,22 +38,22 @@ func InitializeProvider() (*SProvider, error) {
 	return shibProvider, nil
 }
 
-//SProvider implements an IdentityProvider for shibboleth
+// SProvider implements an IdentityProvider for shibboleth
 type SProvider struct {
 	shibClient *SPClient
 }
 
-//GetName returns the name of the provider
+// GetName returns the name of the provider
 func (s *SProvider) GetName() string {
 	return Name
 }
 
-//GetUserType returns the string used to identify a user account for this provider
+// GetUserType returns the string used to identify a user account for this provider
 func (s *SProvider) GetUserType() string {
 	return UserType
 }
 
-//GenerateToken generates a token from the input json data
+// GenerateToken generates a token from the input json data
 func (s *SProvider) GenerateToken(jsonInput map[string]string) (model.Token, int, error) {
 	//getAccessToken
 	status := 0
@@ -100,7 +100,7 @@ func (s *SProvider) GenerateToken(jsonInput map[string]string) (model.Token, int
 		token.Type = TokenType
 		user, ok := GetUserIdentity(identities, UserType)
 		if !ok {
-			log.Error("User identity not found from %v", Name)
+			log.Errorf("User identity not found from %v", Name)
 			return model.Token{}, status, fmt.Errorf("User identity not found from %v", Name)
 		}
 		token.ExternalAccountID = user.ExternalId
@@ -111,7 +111,7 @@ func (s *SProvider) GenerateToken(jsonInput map[string]string) (model.Token, int
 	return model.Token{}, status, fmt.Errorf("Cannot gerenate token from github, invalid request data")
 }
 
-//GetUserIdentity returns the "user" from the list of identities
+// GetUserIdentity returns the "user" from the list of identities
 func GetUserIdentity(identities []client.Identity, userType string) (client.Identity, bool) {
 	for _, identity := range identities {
 		if identity.ExternalIdType == userType {
@@ -121,13 +121,13 @@ func GetUserIdentity(identities []client.Identity, userType string) (client.Iden
 	return client.Identity{}, false
 }
 
-//RefreshToken re-authenticates and generate a new token
+// RefreshToken re-authenticates and generate a new token
 func (s *SProvider) RefreshToken(json map[string]string) (model.Token, int, error) {
 	log.Infof("%s IdentityProvider does not support RefreshToken API", Name)
 	return model.Token{}, 0, nil
 }
 
-//GetIdentities returns list of user and group identities associated to this token
+// GetIdentities returns list of user and group identities associated to this token
 func (s *SProvider) GetIdentities(accessToken string) ([]client.Identity, error) {
 	var identities []client.Identity
 	log.Infof("%s IdentityProvider does not support GetIdentities API", Name)
@@ -135,7 +135,7 @@ func (s *SProvider) GetIdentities(accessToken string) ([]client.Identity, error)
 	return identities, nil
 }
 
-//GetIdentity returns the identity by externalID and externalIDType
+// GetIdentity returns the identity by externalID and externalIDType
 func (s *SProvider) GetIdentity(externalID string, externalIDType string, accessToken string) (client.Identity, error) {
 	log.Infof("%s IdentityProvider does not support GetIdentity API", Name)
 	identity := client.Identity{Resource: client.Resource{
@@ -153,7 +153,7 @@ func (s *SProvider) GetIdentity(externalID string, externalIDType string, access
 	return identity, nil
 }
 
-//SearchIdentities just returns an identity object by setting the name
+// SearchIdentities just returns an identity object by setting the name
 func (s *SProvider) SearchIdentities(name string, exactMatch bool, accessToken string) ([]client.Identity, error) {
 	var identities []client.Identity
 
@@ -171,7 +171,7 @@ func (s *SProvider) SearchIdentities(name string, exactMatch bool, accessToken s
 	return identities, nil
 }
 
-//LoadConfig initializes the provider with the passed config
+// LoadConfig initializes the provider with the passed config
 func (s *SProvider) LoadConfig(authConfig *model.AuthConfig) error {
 	err := s.shibClient.initializeSPClient(&authConfig.ShibbolethConfig)
 	if err != nil {
@@ -181,7 +181,7 @@ func (s *SProvider) LoadConfig(authConfig *model.AuthConfig) error {
 	return nil
 }
 
-//GetConfig returns the provider config
+// GetConfig returns the provider config
 func (s *SProvider) GetConfig() model.AuthConfig {
 	log.Debug("In Shibboleth getConfig")
 
@@ -196,11 +196,11 @@ func (s *SProvider) GetConfig() model.AuthConfig {
 		Type: "shibbolethconfig",
 	}
 
-	log.Debug("In Shibboleth authConfig %v", authConfig)
+	log.Debug("Loaded Shibboleth authConfig")
 	return authConfig
 }
 
-//GetSettings transforms the provider config to db settings
+// GetSettings transforms the provider config to db settings
 func (s *SProvider) GetSettings() map[string]string {
 	settings := make(map[string]string)
 
@@ -220,7 +220,7 @@ func (s *SProvider) GetSettings() map[string]string {
 	return settings
 }
 
-//GetProviderSettingList returns the provider specific db setting list
+// GetProviderSettingList returns the provider specific db setting list
 func (s *SProvider) GetProviderSettingList(listOnly bool) []string {
 	var settings []string
 	settings = append(settings, idpMetadataURLSetting)
@@ -237,7 +237,7 @@ func (s *SProvider) GetProviderSettingList(listOnly bool) []string {
 	return settings
 }
 
-//AddProviderConfig adds the provider config into the generic config using the settings from db
+// AddProviderConfig adds the provider config into the generic config using the settings from db
 func (s *SProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSettings map[string]string) {
 	shibConfig := model.ShibbolethConfig{Resource: client.Resource{
 		Type: "shibbolethconfig",
@@ -254,20 +254,20 @@ func (s *SProvider) AddProviderConfig(authConfig *model.AuthConfig, providerSett
 	authConfig.ShibbolethConfig = shibConfig
 }
 
-//GetLegacySettings returns the provider specific legacy db settings
+// GetLegacySettings returns the provider specific legacy db settings
 func (s *SProvider) GetLegacySettings() map[string]string {
 	settings := make(map[string]string)
 	return settings
 }
 
-//GetRedirectURL returns the provider specific redirect URL used by UI
+// GetRedirectURL returns the provider specific redirect URL used by UI
 func (s *SProvider) GetRedirectURL() string {
-	//redirect to cattle UI
-	path := s.shibClient.config.RancherAPIHost + "/v1-auth/saml/login"
+	// Redirect to the control-plane UI.
+	path := s.shibClient.config.PlatformAPIHost + "/v1-auth/saml/login"
 	return path
 }
 
-//GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
+// GetIdentitySeparator returns the provider specific separator to use to separate allowedIdentities
 func (s *SProvider) GetIdentitySeparator() string {
 	return "#shibsaml#"
 }

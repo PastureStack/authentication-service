@@ -2,7 +2,7 @@ package model
 
 import "github.com/rancher/go-rancher/v2"
 
-//AuthConfig structure contains the AuthConfig definition
+// AuthConfig structure contains the AuthConfig definition
 type AuthConfig struct {
 	client.Resource
 	Provider          string            `json:"provider"`
@@ -12,6 +12,7 @@ type AuthConfig struct {
 	GithubConfig      GithubConfig      `json:"githubConfig"`
 	ShibbolethConfig  ShibbolethConfig  `json:"shibbolethConfig"`
 	LdapConfig        LdapConfig        `json:"ldapConfig"`
+	OIDCConfig        OIDCConfig        `json:"oidcConfig"`
 }
 
 type TestAuthConfig struct {

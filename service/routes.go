@@ -4,15 +4,15 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/PastureStack/authentication-service/model"
+	"github.com/PastureStack/authentication-service/providers"
 	"github.com/gorilla/mux"
 	"github.com/rancher/go-rancher/api"
 	"github.com/rancher/go-rancher/client"
 	v2client "github.com/rancher/go-rancher/v2"
-	"github.com/rancher/rancher-auth-service/model"
-	"github.com/rancher/rancher-auth-service/providers"
 )
 
-//Route defines the properties of a go mux http route
+// Route defines the properties of a go mux http route
 type Route struct {
 	Name        string
 	Method      string
@@ -20,14 +20,14 @@ type Route struct {
 	HandlerFunc http.HandlerFunc
 }
 
-//Routes array of Route defined
+// Routes array of Route defined
 type Routes []Route
 
 var schemas *client.Schemas
 
 var router *mux.Router
 
-//NewRouter creates and configures a mux router
+// NewRouter creates and configures a mux router
 func NewRouter() *mux.Router {
 	schemas = getSchemas()
 
@@ -48,6 +48,7 @@ func NewRouter() *mux.Router {
 	router.Methods("GET").Path("/v1-auth/me/identities").Handler(api.ApiHandler(schemas, http.HandlerFunc(GetIdentities)))
 	router.Methods("GET").Path("/v1-auth/identities").Handler(api.ApiHandler(schemas, http.HandlerFunc(SearchIdentities)))
 	router.Methods("GET").Path("/v1-auth/redirectUrl").Handler(api.ApiHandler(schemas, http.HandlerFunc(GetRedirectURL)))
+	router.Methods("POST").Path("/v1-auth/redirectUrl").Handler(api.ApiHandler(schemas, http.HandlerFunc(PrepareRedirectURL)))
 	router.Methods("GET").Path("/v1-auth/saml/logout").Handler(api.ApiHandler(schemas, http.HandlerFunc(DoSamlLogout)))
 
 	router.Methods("GET").Path("/v1-auth/saml/login").Handler(api.ApiHandler(schemas, http.HandlerFunc(HandleSamlLogin)))
@@ -111,7 +112,7 @@ func getSchemas() *client.Schemas {
 	return schemas
 }
 
-//ReturnHTTPError handles sending out CatalogError response
+// ReturnHTTPError handles sending out CatalogError response
 func ReturnHTTPError(w http.ResponseWriter, r *http.Request, httpStatus int, errorMessage string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
