@@ -2,7 +2,7 @@
 ## explicit; go 1.24
 github.com/Azure/go-ntlmssp
 github.com/Azure/go-ntlmssp/internal/md4
-# github.com/beevik/etree v1.7.0
+# github.com/beevik/etree v1.7.1
 ## explicit; go 1.23.0
 github.com/beevik/etree
 # github.com/cpuguy83/go-md2man/v2 v2.0.7
@@ -44,7 +44,7 @@ github.com/mattermost/xml-roundtrip-validator
 ## explicit
 github.com/pkg/errors
 # github.com/rancher/go-rancher v0.0.0-20170518165705-cc9af4572762 => ./third_party/control-api-client
-## explicit; go 1.26.0
+## explicit; go 1.27.0
 github.com/rancher/go-rancher/api
 github.com/rancher/go-rancher/client
 github.com/rancher/go-rancher/v2
@@ -56,8 +56,8 @@ github.com/russellhaering/goxmldsig/types
 # github.com/russross/blackfriday/v2 v2.1.0
 ## explicit
 github.com/russross/blackfriday/v2
-# github.com/sirupsen/logrus v1.9.4
-## explicit; go 1.17
+# github.com/sirupsen/logrus v1.10.1
+## explicit; go 1.23
 github.com/sirupsen/logrus
 # github.com/tomnomnom/linkheader v0.0.0-20250811210735-e5fe3b51442e
 ## explicit; go 1.13
@@ -65,7 +65,7 @@ github.com/tomnomnom/linkheader
 # github.com/urfave/cli v1.22.17
 ## explicit; go 1.11
 github.com/urfave/cli
-# golang.org/x/crypto v0.54.0
+# golang.org/x/crypto v0.55.0
 ## explicit; go 1.25.0
 golang.org/x/crypto/md4
 golang.org/x/crypto/ripemd160

@@ -11,7 +11,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 ## Project status
 
 The current compatibility release retains the existing Ubuntu 26.04,
-Go 1.26.5, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
+Go 1.27.0, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
 authorization-code client with discovery, PKCE S256, nonce validation,
 asymmetric ID-token verification, UserInfo subject matching, custom

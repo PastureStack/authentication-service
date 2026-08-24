@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 echo Running validation
 
 PACKAGES="./..."
-EXPECTED_GO_VERSION=go1.26.5
+EXPECTED_GO_VERSION=go1.27.0
 
 test -f go.mod
 test -f go.sum
