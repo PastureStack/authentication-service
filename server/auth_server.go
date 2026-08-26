@@ -196,7 +196,7 @@ func initProviderWithConfig(authConfig *model.AuthConfig) (providers.IdentityPro
 	}
 	err = newProvider.LoadConfig(authConfig)
 	if err != nil {
-		log.Debugf("Error Loading the provider config %v", err)
+		log.Debug("Error loading the authentication provider configuration")
 		return nil, err
 	}
 	return newProvider, nil
@@ -323,7 +323,7 @@ func readSettings(provider string) (map[string]string, error) {
 		Filters: filters,
 	})
 	if err != nil {
-		log.Errorf("Error getting the go %v , error: %v", key, err)
+		log.Error("Error loading the authentication configuration object")
 		return nil, err
 	}
 
@@ -398,7 +398,7 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 		Filters: filters,
 	})
 	if err != nil {
-		log.Errorf("Error getting the go %v , error: %v", key, err)
+		log.Error("Error loading the authentication configuration object")
 		return err
 	}
 
@@ -561,7 +561,7 @@ func UpdateConfig(authConfig model.AuthConfig) error {
 
 	newProvider, err := initProviderWithConfig(&authConfig)
 	if err != nil {
-		log.Errorf("UpdateConfig: Cannot update the config, error initializing the provider %v", err)
+		log.Error("UpdateConfig: cannot initialize the authentication provider")
 		return err
 	}
 	//store the config to db
@@ -614,14 +614,14 @@ func UpdateConfig(authConfig model.AuthConfig) error {
 		skipped, err := Reload(true)
 		for skipped {
 			if err != nil {
-				log.Errorf("Failed to reload the auth provider from db on updateConfig: %v", err)
+				log.Error("Failed to reload the authentication provider from the database")
 				return err
 			}
 			time.Sleep(30 * time.Millisecond)
 			skipped, err = Reload(true)
 		}
 		if err != nil {
-			log.Errorf("Failed to reload the auth provider from db on updateConfig: %v", err)
+			log.Error("Failed to reload the authentication provider from the database")
 			return err
 		}
 	}
@@ -943,7 +943,7 @@ func Reload(fromUpdate bool) (bool, error) {
 
 		newProvider, err := initProviderWithConfig(&authConfig)
 		if err != nil {
-			log.Errorf("Error initializing the provider %v", err)
+			log.Error("Error initializing the authentication provider")
 			<-*refreshReqChannel
 			return false, err
 		}
@@ -1181,7 +1181,7 @@ func TestLogin(testAuthConfig model.TestAuthConfig, accessToken string, token st
 	testAuthConfig.AuthConfig = authConfig
 	newProvider, err := initProviderWithConfig(&authConfig)
 	if err != nil {
-		log.Errorf("GetProvider: Error initializing the provider %v", err)
+		log.Error("GetProvider: error initializing the authentication provider")
 		return model.Token{}, 0, err
 	}
 

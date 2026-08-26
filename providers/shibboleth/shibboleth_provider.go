@@ -170,7 +170,7 @@ func (s *SProvider) SearchIdentities(name string, exactMatch bool, accessToken s
 func (s *SProvider) LoadConfig(authConfig *model.AuthConfig) error {
 	err := s.shibClient.initializeSPClient(&authConfig.ShibbolethConfig)
 	if err != nil {
-		log.Errorf("Error initializing the SP client %v", err)
+		log.Error("Error initializing the SAML service-provider client")
 		return err
 	}
 	return nil

@@ -153,7 +153,7 @@ func StartService(c *cli.Context) {
 	_, err = server.Reload(false)
 
 	if err != nil {
-		log.Fatalf("Failed to reload the auth provider from db on start: %v", err)
+		log.Fatal("Failed to reload the auth provider from db on start")
 	}
 
 	router := service.NewRouter()

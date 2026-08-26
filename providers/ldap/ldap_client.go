@@ -608,7 +608,7 @@ func isType(search []*ldap.EntryAttribute, varType string) bool {
 			}
 		}
 	}
-	log.Debugf("Failed to determine if object is type: %s", varType)
+	log.Debug("Failed to determine the LDAP object type")
 	return false
 }
 

@@ -172,7 +172,7 @@ func SearchIdentities(w http.ResponseWriter, r *http.Request) {
 				apiContext.Write(&identity)
 			} else {
 				//failed to search the identities
-				log.Errorf("SearchIdentities Failed with error %v", err)
+				log.Error("Identity search failed")
 				ReturnHTTPError(w, r, http.StatusInternalServerError, "Internal Server Error")
 				return
 			}
@@ -229,7 +229,7 @@ func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	err = server.UpdateConfig(authConfig)
 	if err != nil {
-		log.Errorf("UpdateConfig failed with error: %v", err)
+		log.Error("Authentication configuration update failed")
 		ReturnHTTPError(w, r, http.StatusBadRequest, "Bad Request, Please check the request content")
 		return
 	}
@@ -241,7 +241,7 @@ func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		apiContext.Write(&config)
 	} else {
 		//failed to get the config
-		log.Debugf("GetConfig failed with error %v", err)
+		log.Debug("Authentication configuration lookup failed")
 		ReturnHTTPError(w, r, http.StatusInternalServerError, "Failed to list the config")
 		return
 	}
@@ -279,7 +279,7 @@ func Reload(w http.ResponseWriter, r *http.Request) {
 	_, err := server.Reload(false)
 	if err != nil {
 		//failed to reload the config from DB
-		log.Debugf("Reload failed with error %v", err)
+		log.Debug("Authentication configuration reload failed")
 		ReturnHTTPError(w, r, http.StatusInternalServerError, "Failed to reload the auth config")
 		return
 	}
@@ -294,7 +294,7 @@ func addErrorToRedirect(redirectURL string, code string) string {
 		redirectURLInst.RawQuery = v.Encode()
 		redirectURL = redirectURLInst.String()
 	} else {
-		log.Errorf("Error parsing the URL %v  ,error is: %v", redirectURL, err)
+		log.Error("Failed to parse an authentication redirect URL")
 		redirectURL = redirectURL + "?errCode=" + code
 	}
 	return redirectURL
@@ -343,7 +343,7 @@ func DoSamlLogout(w http.ResponseWriter, r *http.Request) {
 			entityID := server.SamlServiceProvider.ServiceProvider.IDPMetadata.EntityID
 			entityURL, _ := url.Parse(entityID)
 			redirectURL := entityURL.Scheme + "://" + entityURL.Host + "/idp/profile/Logout"
-			log.Debugf("redirecting the user to %v", redirectURL)
+			log.Debug("Redirecting the user to the configured SAML logout endpoint")
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
@@ -399,7 +399,7 @@ func TestLogin(w http.ResponseWriter, r *http.Request) {
 
 	testToken, status, err := server.TestLogin(testAuthConfig, accessToken, token)
 	if err != nil {
-		log.Errorf("TestLogin GetProvider failed with error: %v", err)
+		log.Error("TestLogin could not initialize the authentication provider")
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
@@ -445,6 +445,8 @@ func HandleSamlLogin(w http.ResponseWriter, r *http.Request) {
 		redirectBackPathValue := r.URL.Query().Get(redirectBackPath)
 		redirectURL := samlRedirectURL(server.GetPlatformAPIHost(), redirectBackPathValue)
 		redirectURL = addErrorToRedirect(redirectURL, "422")
+		// The platform origin and path are validated by samlRedirectURL.
+		// lgtm[go/unvalidated-url-redirection]
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
@@ -883,7 +885,7 @@ func HandleSamlAssertion(w http.ResponseWriter, r *http.Request, assertion *saml
 	tokenCookie := &http.Cookie{
 		Name:     "token",
 		Value:    jwtValue,
-		Secure:   requestIsHTTPS(r),
+		Secure:   true,
 		HttpOnly: true,
 		MaxAge:   0,
 		Path:     "/",
@@ -931,7 +933,7 @@ func PostSamlTokenHTML(w http.ResponseWriter, r *http.Request) {
 	tokenCookie := &http.Cookie{
 		Name:     "token",
 		Value:    token,
-		Secure:   requestIsHTTPS(r),
+		Secure:   true,
 		HttpOnly: true,
 		MaxAge:   0,
 		Path:     "/",
@@ -939,6 +941,8 @@ func PostSamlTokenHTML(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, tokenCookie)
 	w.Header().Set("Cache-Control", "no-store")
+	// finalRedirectURL passed isAllowedRedirectURL immediately above.
+	// lgtm[go/unvalidated-url-redirection]
 	http.Redirect(w, r, finalRedirectURL, http.StatusFound)
 }
 

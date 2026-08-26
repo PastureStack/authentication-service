@@ -47,8 +47,19 @@ func TestCookieSAMLClientStateLifecycle(t *testing.T) {
 		t.Fatalf("delete state: %v", err)
 	}
 	deleted := deleteRecorder.Result().Cookies()[0]
-	if deleted.Value != "" || deleted.MaxAge != -1 || deleted.Path != "/v1-saml/acs" || deleted.SameSite != http.SameSiteNoneMode {
+	if deleted.Value != "" || deleted.MaxAge != -1 || deleted.Path != "/v1-saml/acs" || !deleted.Secure || deleted.SameSite != http.SameSiteNoneMode {
 		t.Fatalf("state cookie was not expired safely: %#v", deleted)
+	}
+}
+
+func TestCookieSAMLClientStateNeverIssuesAnInsecureCookie(t *testing.T) {
+	state := CookieSAMLClientState{}
+	recorder := httptest.NewRecorder()
+	state.SetState(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/login", nil), "relay", "signed")
+
+	cookie := recorder.Result().Cookies()[0]
+	if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteNoneMode {
+		t.Fatalf("SAML state cookie must remain secure even on a plaintext request: %#v", cookie)
 	}
 }
 
