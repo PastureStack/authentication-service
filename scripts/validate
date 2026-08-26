@@ -16,7 +16,7 @@ test -f vendor/github.com/crewjam/saml/LICENSE
 test ! -e vendor/github.com/crewjam/saml/xmlenc/fuzz.go
 test "$(tail -n 1 Dockerfile.dapper)" = 'CMD ["ci"]'
 grep -Fx 'USER 65532:65532' Dockerfile.dapper >/dev/null
-grep -Fx 'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03' Dockerfile.dapper >/dev/null
+grep -Fx 'FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b' Dockerfile.dapper >/dev/null
 grep -F 'https://snapshot.ubuntu.com/ubuntu/%s' Dockerfile.dapper >/dev/null
 if grep -R -E -l \
     --exclude-dir=.git \
