@@ -178,7 +178,7 @@ func (g *GProvider) GetIdentity(externalID string, externalIDType string, access
 		githubAcct.toIdentity(externalIDType, &identity, false)
 		return identity, nil
 	default:
-		log.Debugf("Cannot get the github account due to invalid externalIDType %v", externalIDType)
+		log.Debug("Cannot get the GitHub account due to an invalid external identity type")
 		return identity, fmt.Errorf("Cannot get the github account due to invalid externalIDType %v", externalIDType)
 	}
 }

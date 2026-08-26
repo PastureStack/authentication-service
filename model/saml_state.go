@@ -27,18 +27,13 @@ func (c CookieSAMLClientState) cookiePath() string {
 
 // SetState stores a single, short-lived RelayState value.
 func (c CookieSAMLClientState) SetState(w http.ResponseWriter, r *http.Request, id string, value string) {
-	secure := samlRequestIsHTTPS(r)
-	sameSite := http.SameSiteLaxMode
-	if secure {
-		sameSite = http.SameSiteNoneMode
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     samlStateCookiePrefix + id,
 		Value:    value,
 		MaxAge:   int(saml.MaxIssueDelay.Seconds()),
 		HttpOnly: true,
-		Secure:   secure,
-		SameSite: sameSite,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		Path:     c.cookiePath(),
 	})
 }
@@ -84,12 +79,8 @@ func (c CookieSAMLClientState) DeleteState(w http.ResponseWriter, r *http.Reques
 	cookie.MaxAge = -1
 	cookie.Expires = time.Unix(1, 0)
 	cookie.HttpOnly = true
-	cookie.Secure = samlRequestIsHTTPS(r)
-	if cookie.Secure {
-		cookie.SameSite = http.SameSiteNoneMode
-	} else {
-		cookie.SameSite = http.SameSiteLaxMode
-	}
+	cookie.Secure = true
+	cookie.SameSite = http.SameSiteNoneMode
 	http.SetCookie(w, cookie)
 	return nil
 }
