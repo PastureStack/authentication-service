@@ -227,9 +227,19 @@ func UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = server.UpdateConfig(authConfig)
+	err = server.UpdateConfigWithRequest(authConfig, server.ConfigUpdateRequest{
+		Context:       r.Context(),
+		Authorization: r.Header.Get("Authorization"),
+		Cookie:        r.Header.Get("Cookie"),
+	})
 	if err != nil {
 		log.Error("Authentication configuration update failed")
+		var updateError *server.ConfigUpdateError
+		if errors.As(err, &updateError) {
+			returnHTTPError(w, r, updateError.HTTPStatus, updateError.Code,
+				updateError.Message, updateError.RequestDigest)
+			return
+		}
 		ReturnHTTPError(w, r, http.StatusBadRequest, "Bad Request, Please check the request content")
 		return
 	}

@@ -12,6 +12,22 @@ the active authentication method changes. Existing local authentication
 remains the recovery path until a second, fresh authorization-code exchange
 creates a normal platform session.
 
+## OIDC site-access policy updates
+
+OIDC provider initialization and site-access authorization are independent
+transactions. Updating only `accessMode` or `allowedIdentities` on an already
+enabled, unchanged OIDC provider must not repeat discovery, key retrieval, or
+provider initialization. Initial enablement, changing provider type, or
+changing the OIDC identity source still requires a fresh local-recovery check
+and successful provider initialization.
+
+Expanding access requires a one-time Engine MFA security confirmation bound to
+the authenticated operator, purpose `oidcAccessPolicyUpdate`, and the canonical
+SHA-256 request digest. Reducing access does not require step-up confirmation.
+Unrestricted mode persists a non-null empty allowlist. Restricted and required
+mode entries are canonicalized and deduplicated by `externalIdType` plus
+`externalId`; only `oidc_user` and `oidc_group` are accepted.
+
 Operator lifecycle messages support `en-US` and `zh-TW`. Tokens, usernames,
 groups, identity-provider data, OpenID Connect claims, SAML documents,
 database settings, HTTP payloads, and protocol errors are not translated.
