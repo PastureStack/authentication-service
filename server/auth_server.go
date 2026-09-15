@@ -17,6 +17,7 @@ import (
 
 	"github.com/PastureStack/authentication-service/model"
 	"github.com/PastureStack/authentication-service/providers"
+	"github.com/PastureStack/authentication-service/providers/oidc"
 	"github.com/PastureStack/authentication-service/providers/shibboleth"
 	"github.com/PastureStack/authentication-service/util"
 	"github.com/golang-jwt/jwt/v5"
@@ -472,24 +473,32 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 
 func updateCommonSettings(settings map[string]string) error {
 	for key, value := range settings {
-		if value != "" {
-			log.Debugf("Updating platform setting %v", key)
-			setting, err := PlatformClient.Setting.ById(key)
-			if err != nil {
-				log.Errorf("Error getting the setting %v , error: %v", key, err)
-				return err
-			}
+		if !shouldUpdateCommonSetting(key, value) {
+			continue
+		}
+		log.Debugf("Updating platform setting %v", key)
+		setting, err := PlatformClient.Setting.ById(key)
+		if err != nil {
+			log.Errorf("Error getting the setting %v , error: %v", key, err)
+			return err
+		}
 
-			setting, err = PlatformClient.Setting.Update(setting, &client.Setting{
-				Value: value,
-			})
-			if err != nil {
-				log.Errorf("Error updating the setting %v: %v", key, err)
-				return err
-			}
+		setting, err = PlatformClient.Setting.Update(setting, &client.Setting{
+			Value: value,
+		})
+		if err != nil {
+			log.Errorf("Error updating the setting %v: %v", key, err)
+			return err
 		}
 	}
 	return nil
+}
+
+func shouldUpdateCommonSetting(key string, value string) bool {
+	// Preserve the historical "empty means unchanged" behavior for all common
+	// settings except the OIDC allowlist.  An unrestricted policy must be able
+	// to persist an explicit empty allowlist instead of retaining stale entries.
+	return value != "" || key == allowedIdentitiesSetting
 }
 
 func getAllowedIDString(allowedIdentities []client.Identity, separator string) string {
@@ -542,21 +551,67 @@ func getAllowedIdentities(idString string, accessToken string, separator string)
 
 // UpdateConfig updates the config in DB
 func UpdateConfig(authConfig model.AuthConfig) error {
-	if authConfig.Enabled && strings.EqualFold(authConfig.Provider, "oidcconfig") {
-		settings, err := readCommonSettings([]string{
-			localRecoveryEnabledSetting,
-			localRecoveryVerifiedAtSetting,
-			localRecoveryMFAReadySetting,
-		})
+	return UpdateConfigWithRequest(authConfig, ConfigUpdateRequest{})
+}
+
+// UpdateConfigWithRequest updates the configuration and carries the current
+// administrator's proof only when a policy expansion needs bound MFA.
+func UpdateConfigWithRequest(authConfig model.AuthConfig, updateRequest ConfigUpdateRequest) error {
+	// A security confirmation is request-scoped proof. Remove it from the
+	// configuration object before any provider, persistence, reload, or
+	// in-memory path can observe it, and keep only the local value needed for
+	// the bound consume call below.
+	securityConfirmation := detachSecurityConfirmation(&authConfig)
+	preparedProviderConfig := false
+	if strings.EqualFold(authConfig.Provider, oidcProviderName) {
+		currentConfig, err := GetConfig("", false)
 		if err != nil {
-			return errors.Wrap(err, "UpdateConfig: Could not verify local administrator recovery")
+			return errors.Wrap(err, "UpdateConfig: Could not read the current authentication configuration")
 		}
-		if !localRecoveryReady(settings, time.Now()) {
-			return fmt.Errorf("verify an active local system-administrator account within five minutes before activating OpenID Connect")
+		if err := prepareProviderConfig(&authConfig); err != nil {
+			return err
+		}
+		preparedProviderConfig = true
+		if err := normalizeOIDCAccessPolicy(&authConfig, true); err != nil {
+			return err
+		}
+		oidc.NormalizeConfig(&authConfig.OIDCConfig)
+		plan, err := planOIDCConfigUpdate(currentConfig, authConfig)
+		if err != nil {
+			return err
+		}
+		if plan.RequiresLocalRecovery {
+			settings, err := readCommonSettings([]string{
+				localRecoveryEnabledSetting,
+				localRecoveryVerifiedAtSetting,
+				localRecoveryMFAReadySetting,
+			})
+			if err != nil {
+				return errors.Wrap(err, "UpdateConfig: Could not verify local administrator recovery")
+			}
+			if !localRecoveryReady(settings, time.Now()) {
+				return &ConfigUpdateError{
+					HTTPStatus: http.StatusForbidden,
+					Code:       configErrorLocalRecovery,
+					Message:    "Verify an active local system-administrator account within five minutes before changing the OpenID Connect identity source",
+				}
+			}
+		}
+		if plan.PermissionExpansion {
+			if err := requireBoundSecurityConfirmation(updateRequest,
+				securityConfirmation, plan.RequestDigest); err != nil {
+				return err
+			}
+		}
+		if plan.SameProvider && !plan.RequiresProviderInitialization {
+			return updateOIDCConfigWithoutInitialization(currentConfig, authConfig)
 		}
 	}
-	if err := prepareProviderConfig(&authConfig); err != nil {
-		return err
+
+	if !preparedProviderConfig {
+		if err := prepareProviderConfig(&authConfig); err != nil {
+			return err
+		}
 	}
 
 	newProvider, err := initProviderWithConfig(&authConfig)
@@ -627,6 +682,68 @@ func UpdateConfig(authConfig model.AuthConfig) error {
 	}
 
 	return nil
+}
+
+func detachSecurityConfirmation(authConfig *model.AuthConfig) string {
+	securityConfirmation := authConfig.SecurityConfirmation
+	authConfig.SecurityConfirmation = ""
+	return securityConfirmation
+}
+
+func updateOIDCConfigWithoutInitialization(currentConfig model.AuthConfig, authConfig model.AuthConfig) error {
+	newProvider, err := providers.GetProvider(authConfig.Provider)
+	if err != nil || newProvider == nil {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("Could not get the %s auth provider", authConfig.Provider)
+	}
+
+	currentOIDCConfig := currentConfig.OIDCConfig
+	oidc.NormalizeConfig(&currentOIDCConfig)
+	if currentOIDCConfig.DisplayName != authConfig.OIDCConfig.DisplayName {
+		genObjConfig := map[string]map[string]string{
+			newProvider.GetName(): oidc.SettingsForConfig(authConfig.OIDCConfig),
+		}
+		if err := updateSettings(genObjConfig, newProvider.GetProviderSecretSettings(),
+			newProvider.GetName(), authConfig.Enabled); err != nil {
+			return errors.Wrap(err, "UpdateConfig: Error storing OpenID Connect display settings")
+		}
+	}
+
+	orderedSettings := []struct {
+		key   string
+		value string
+	}{
+		{allowedIdentitiesSetting, getAllowedIDString(authConfig.AllowedIdentities, newProvider.GetIdentitySeparator())},
+		{accessModeSetting, authConfig.AccessMode},
+		{securitySetting, strconv.FormatBool(authConfig.Enabled)},
+		{authServiceConfigUpdateTimestamp, time.Now().String()},
+	}
+	for _, setting := range orderedSettings {
+		if err := updateCommonSettings(map[string]string{setting.key: setting.value}); err != nil {
+			return errors.Wrap(err, "UpdateConfig: Error storing OpenID Connect access policy")
+		}
+	}
+	updateOIDCConfigInMemory(authConfig)
+	return nil
+}
+
+func updateOIDCConfigInMemory(authConfig model.AuthConfig) {
+	if refreshReqChannel == nil {
+		authConfigInMemory = authConfig
+		return
+	}
+	for {
+		select {
+		case *refreshReqChannel <- 1:
+			authConfigInMemory = authConfig
+			<-*refreshReqChannel
+			return
+		default:
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
 }
 
 func localRecoveryReady(settings map[string]string, now time.Time) bool {

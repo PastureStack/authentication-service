@@ -131,6 +131,12 @@ func normalizeConfig(config *model.OIDCConfig) {
 	}
 }
 
+// NormalizeConfig applies the same canonical defaults used by the live OIDC
+// client without performing discovery or making a network request.
+func NormalizeConfig(config *model.OIDCConfig) {
+	normalizeConfig(config)
+}
+
 func validateConfig(config *model.OIDCConfig) error {
 	if config.WellKnownURL == "" {
 		return fmt.Errorf("OIDC discovery URL is required")

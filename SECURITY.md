@@ -34,6 +34,14 @@ administrator testing before activation.
   replay-protected by the control platform. It carries the exact provider and
   immutable external identifier used for an explicit account-link decision;
   usernames and email addresses are display data, not matching keys.
+- Expanding OIDC site access requires a single-use MFA confirmation bound to
+  the authenticated operator, the fixed policy-update purpose, and a canonical
+  SHA-256 request digest. The confirmation value is detached before provider
+  normalization or persistence and is never written to settings or logs.
+- Unrestricted OIDC access always clears the stored identity allowlist. Other
+  access modes accept only canonical `oidc_user` and `oidc_group` principals;
+  duplicate or delimiter-injecting entries are rejected or deduplicated before
+  storage.
 - Do not commit keys, credentials, tokens, encrypted production settings, identity data, or live assertions.
 
 ## Dependency and build evidence

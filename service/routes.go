@@ -81,6 +81,9 @@ func getSchemas() *client.Schemas {
 	authconfig.CollectionMethods = []string{"GET", "POST"}
 	authconfig.ResourceMethods = []string{"GET", "POST"}
 	authconfig.PluralName = "configs"
+	securityConfirmation := authconfig.ResourceFields["securityConfirmation"]
+	securityConfirmation.Type = "password"
+	authconfig.ResourceFields["securityConfirmation"] = securityConfirmation
 
 	// TestAuthConfig
 	testAuthconfig := schemas.AddType("testAuthConfig", model.TestAuthConfig{})
@@ -114,6 +117,10 @@ func getSchemas() *client.Schemas {
 
 // ReturnHTTPError handles sending out CatalogError response
 func ReturnHTTPError(w http.ResponseWriter, r *http.Request, httpStatus int, errorMessage string) {
+	returnHTTPError(w, r, httpStatus, "", errorMessage, "")
+}
+
+func returnHTTPError(w http.ResponseWriter, r *http.Request, httpStatus int, code string, errorMessage string, requestDigest string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
 
@@ -121,8 +128,10 @@ func ReturnHTTPError(w http.ResponseWriter, r *http.Request, httpStatus int, err
 		Resource: client.Resource{
 			Type: "error",
 		},
-		Status:  strconv.Itoa(httpStatus),
-		Message: errorMessage,
+		Status:        strconv.Itoa(httpStatus),
+		Code:          code,
+		Message:       errorMessage,
+		RequestDigest: requestDigest,
 	}
 
 	api.CreateApiContext(w, r, schemas)

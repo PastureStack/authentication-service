@@ -120,7 +120,12 @@ func (p *Provider) GetConfig() model.AuthConfig {
 }
 
 func (p *Provider) GetSettings() map[string]string {
-	config := p.client.config
+	return SettingsForConfig(*p.client.config)
+}
+
+// SettingsForConfig serializes OIDC settings without initializing the
+// provider. It is used for display-only updates that must not repeat discovery.
+func SettingsForConfig(config model.OIDCConfig) map[string]string {
 	settings := map[string]string{
 		displayNameSetting:          config.DisplayName,
 		wellKnownURLSetting:         config.WellKnownURL,

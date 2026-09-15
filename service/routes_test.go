@@ -1,6 +1,8 @@
 package service
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -59,5 +61,26 @@ func TestOIDCSchemaIsRegisteredWithSafeDefaults(t *testing.T) {
 	clientSecretSet := schema.ResourceFields["clientSecretSet"]
 	if clientSecretSet.Create || clientSecretSet.Update {
 		t.Fatal("clientSecretSet must be read-only")
+	}
+	if field := allSchemas.Schema("config").ResourceFields["securityConfirmation"]; field.Type != "password" {
+		t.Fatalf("securityConfirmation field type = %q, expected password", field.Type)
+	}
+}
+
+func TestConfigUpdateErrorIncludesStableCodeAndRequestDigest(t *testing.T) {
+	schemas = getSchemas()
+	request := httptest.NewRequest(http.MethodPost, "/v1-auth/config", strings.NewReader("{}"))
+	response := httptest.NewRecorder()
+	digest := strings.Repeat("a", 64)
+	returnHTTPError(response, request, http.StatusForbidden, "MfaConfirmationRequired",
+		"confirmation required", digest)
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusForbidden || body["code"] != "MfaConfirmationRequired" ||
+		body["requestDigest"] != digest {
+		t.Fatalf("unexpected stable error response: status=%d body=%#v", response.Code, body)
 	}
 }
