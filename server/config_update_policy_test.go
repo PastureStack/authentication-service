@@ -348,16 +348,21 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 			return
 		}
 		if request.Method == http.MethodPut {
-			var update struct {
-				Value string `json:"value"`
-			}
+			var update map[string]interface{}
 			if err := json.NewDecoder(request.Body).Decode(&update); err != nil {
 				t.Fatal(err)
 			}
-			settings[name] = update.Value
+			rawValue, present := update["value"]
+			value, stringValue := rawValue.(string)
+			if !present || !stringValue {
+				t.Errorf("setting update omitted an explicit string value: %#v", update)
+				http.Error(response, "missing explicit setting value", http.StatusUnprocessableEntity)
+				return
+			}
+			settings[name] = value
 			writes = append(writes, name)
 			_, _ = fmt.Fprintf(response, `{"id":%q,"type":"setting","activeValue":%q,"value":%q,"links":{"self":%q}}`,
-				name, update.Value, update.Value, platformServer.URL+request.URL.Path)
+				name, value, value, platformServer.URL+request.URL.Path)
 			return
 		}
 		http.Error(response, "unexpected platform method", http.StatusMethodNotAllowed)
