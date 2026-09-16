@@ -718,7 +718,6 @@ func updateOIDCConfigWithoutInitialization(currentConfig model.AuthConfig, authC
 		{allowedIdentitiesSetting, getAllowedIDString(authConfig.AllowedIdentities, newProvider.GetIdentitySeparator())},
 		{accessModeSetting, authConfig.AccessMode},
 		{securitySetting, strconv.FormatBool(authConfig.Enabled)},
-		{authServiceConfigUpdateTimestamp, time.Now().String()},
 	}
 	for _, setting := range orderedSettings {
 		if err := updateCommonSettings(map[string]string{setting.key: setting.value}); err != nil {
