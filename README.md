@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The current compatibility release is `v0.4.37`. It retains the existing Ubuntu 26.04,
+The current compatibility release is `v0.4.38`. It retains the existing Ubuntu 26.04,
 Go 1.27.0, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
 authorization-code client with discovery, PKCE S256, nonce validation,
@@ -21,10 +21,11 @@ single-use signed identity proof. The control platform uses that proof for an
 explicit account-link or reassignment decision; profile fields are never
 trusted as implicit account-matching keys.
 
-Release `v0.4.37` separates OIDC identity-source changes from site-access
+Release `v0.4.38` separates OIDC identity-source changes from site-access
 policy changes. An already-enabled provider can change access mode and its
-OIDC user/group allowlist without repeating discovery or the five-minute local
-recovery ceremony. Initial enablement, provider switches, and changes to the
+OIDC user/group allowlist without repeating discovery, emitting a provider
+reload generation, or repeating the five-minute local recovery ceremony.
+Initial enablement, provider switches, and changes to the
 discovery URL, client credentials, custom CA, scopes, PKCE, or identity claims
 still require fresh local recovery and provider validation. Access expansion
 requires a single-use MFA confirmation bound to the authenticated operator and
@@ -50,9 +51,9 @@ make build
 make package
 ```
 
-Set `VERSION_OVERRIDE=v0.4.37` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.38` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.37-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.38-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the

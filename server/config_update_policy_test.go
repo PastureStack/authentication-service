@@ -321,9 +321,10 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 	defer discoveryServer.Close()
 
 	settings := map[string]string{
-		allowedIdentitiesSetting: "oidc_user:alice#oidc#oidc_group:operators",
-		accessModeSetting:        "restricted",
-		securitySetting:          "true",
+		allowedIdentitiesSetting:         "oidc_user:alice#oidc#oidc_group:operators",
+		accessModeSetting:                "restricted",
+		securitySetting:                  "true",
+		authServiceConfigUpdateTimestamp: "unchanged-provider-reload-generation",
 	}
 	var writes []string
 	var platformServer *httptest.Server
@@ -398,6 +399,15 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 	}
 	if len(writes) < 2 || writes[0] != allowedIdentitiesSetting || writes[1] != accessModeSetting {
 		t.Fatalf("allowlist was not cleared before the access mode changed: %#v", writes)
+	}
+	for _, setting := range writes {
+		if setting == authServiceConfigUpdateTimestamp {
+			t.Fatalf("policy-only update signalled an external provider reload: %#v", writes)
+		}
+	}
+	if settings[authServiceConfigUpdateTimestamp] != "unchanged-provider-reload-generation" {
+		t.Fatalf("policy-only update changed the provider reload generation: %q",
+			settings[authServiceConfigUpdateTimestamp])
 	}
 	reread, err := readCommonSettings([]string{allowedIdentitiesSetting, accessModeSetting})
 	if err != nil {
