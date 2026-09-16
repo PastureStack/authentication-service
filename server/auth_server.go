@@ -483,8 +483,12 @@ func updateCommonSettings(settings map[string]string) error {
 			return err
 		}
 
-		setting, err = PlatformClient.Setting.Update(setting, &client.Setting{
-			Value: value,
+		// The generated Setting.Value field uses json:",omitempty". A typed
+		// Setting therefore drops the field when an unrestricted OIDC policy
+		// intentionally clears the allowlist. Use an explicit wire payload so
+		// an empty value remains distinguishable from "leave unchanged".
+		setting, err = PlatformClient.Setting.Update(setting, map[string]interface{}{
+			"value": value,
 		})
 		if err != nil {
 			log.Errorf("Error updating the setting %v: %v", key, err)

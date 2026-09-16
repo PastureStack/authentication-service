@@ -27,6 +27,9 @@ SHA-256 request digest. Reducing access does not require step-up confirmation.
 Unrestricted mode persists a non-null empty allowlist. Restricted and required
 mode entries are canonicalized and deduplicated by `externalIdType` plus
 `externalId`; only `oidc_user` and `oidc_group` are accepted.
+The empty allowlist must be present as an explicit `value: ""` field in the
+platform setting update. Generated client omission rules must not turn the
+clear operation into a no-op.
 
 Operator lifecycle messages support `en-US` and `zh-TW`. Tokens, usernames,
 groups, identity-provider data, OpenID Connect claims, SAML documents,
