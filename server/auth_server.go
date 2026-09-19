@@ -1076,6 +1076,15 @@ func Reload(fromUpdate bool) (bool, error) {
 			return false, nil
 		}
 
+		if strings.EqualFold(authConfig.Provider, oidcProviderName) &&
+			canApplyOIDCReloadWithoutInitialization(
+				authConfigInMemory, authConfig, provider != nil) {
+			log.Info("Applying OpenID Connect access-policy reload without provider initialization")
+			authConfigInMemory = authConfig
+			<-*refreshReqChannel
+			return false, nil
+		}
+
 		if err := prepareProviderConfig(&authConfig); err != nil {
 			<-*refreshReqChannel
 			return false, err

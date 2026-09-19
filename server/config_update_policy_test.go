@@ -31,6 +31,33 @@ func TestOIDCPolicyOnlyUpdateSkipsRecoveryAndProviderInitialization(t *testing.T
 	}
 }
 
+func TestOIDCPolicyOnlyReloadSkipsProviderInitialization(t *testing.T) {
+	current := oidcConfigForPolicyTest(true, "restricted",
+		oidcIdentity("oidc_user", "alice"))
+	policyOnly := current
+	policyOnly.AllowedIdentities = append(policyOnly.AllowedIdentities,
+		oidcIdentity("oidc_group", "operators"))
+
+	if !canApplyOIDCReloadWithoutInitialization(current, policyOnly, true) {
+		t.Fatal("a live unchanged OIDC provider would be initialized for a policy-only reload")
+	}
+	if canApplyOIDCReloadWithoutInitialization(current, policyOnly, false) {
+		t.Fatal("startup skipped required OIDC provider initialization")
+	}
+
+	sourceChange := policyOnly
+	sourceChange.OIDCConfig.ClientID = "replacement-client"
+	if canApplyOIDCReloadWithoutInitialization(current, sourceChange, true) {
+		t.Fatal("an OIDC identity-source change skipped provider initialization")
+	}
+
+	initialEnable := current
+	initialEnable.Enabled = false
+	if canApplyOIDCReloadWithoutInitialization(initialEnable, current, true) {
+		t.Fatal("initial OIDC enablement skipped provider initialization")
+	}
+}
+
 func TestExpiredLocalRecoveryOnlyBlocksIdentitySourceChanges(t *testing.T) {
 	now := time.UnixMilli(1_800_000_000_000)
 	expiredRecovery := map[string]string{
