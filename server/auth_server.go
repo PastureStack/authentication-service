@@ -355,6 +355,18 @@ func readSettings(provider string) (map[string]string, error) {
 	return providerSettings, nil
 }
 
+func storedAuthConfigExists() (bool, error) {
+	if PlatformClient == nil {
+		return false, fmt.Errorf("platform API client is not configured")
+	}
+	filters := map[string]interface{}{"key": "auth.config"}
+	authColl, err := PlatformClient.GenericObject.List(&client.ListOpts{Filters: filters})
+	if err != nil {
+		return false, err
+	}
+	return len(authColl.Data) > 0, nil
+}
+
 func readCommonSettings(settings []string) (map[string]string, error) {
 	var dbSettings = make(map[string]string)
 	if PlatformClient == nil {
@@ -768,6 +780,20 @@ func localRecoveryReady(settings map[string]string, now time.Time) bool {
 
 // UpgradeSettings upgrades the existing provider specific auth settings to the new generic settings used by this service
 func UpgradeSettings() error {
+	// Legacy provider settings are a one-time migration source. Once the
+	// encrypted auth.config object exists, the common settings are authoritative
+	// and must not be overwritten on every process restart. OIDC has no legacy
+	// access-policy keys, so repeating this migration used to clear a valid
+	// restricted allowlist after an otherwise successful policy save.
+	stored, err := storedAuthConfigExists()
+	if err != nil {
+		return errors.Wrap(err, "UpgradeSettings: Could not inspect the stored authentication configuration")
+	}
+	if stored {
+		log.Info("Authentication configuration already migrated; skipping legacy settings upgrade")
+		return nil
+	}
+
 	//read the current provider
 	var settings []string
 	settings = append(settings, providerSetting)
@@ -828,17 +854,13 @@ func UpgradeCase() error {
 	}}
 
 	// check if GenericObject with key="auth.config" exists
-	filters := make(map[string]interface{})
-	filters["key"] = "auth.config"
-	authColl, err := PlatformClient.GenericObject.List(&client.ListOpts{
-		Filters: filters,
-	})
+	stored, err := storedAuthConfigExists()
 	if err != nil {
 		log.Errorf("Error getting the go 'auth.config', error: %v", err)
 		return err
 	}
 
-	if len(authColl.Data) > 0 {
+	if stored {
 		log.Info("Config stored")
 		return nil
 	}
