@@ -20,7 +20,7 @@ jobs:
     env:
       DAPPER_IMAGE: pasturestack/authentication-service-dapper:${{ github.sha }}
       TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
-      VERSION_OVERRIDE: v0.4.39
+      VERSION_OVERRIDE: v0.4.40
     steps:
       - name: Check out candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,7 +70,7 @@ jobs:
           }
 
           run_ci
-          artifact="dist/artifacts/authentication-service-0.4.39-linux-amd64.tar.xz"
+          artifact="dist/artifacts/authentication-service-0.4.40-linux-amd64.tar.xz"
           test -s "$artifact"
           cp "$artifact" /tmp/authentication-service-first.tar.xz
           rm -rf bin dist
@@ -81,7 +81,7 @@ jobs:
           tar -xJf "$artifact" -C evidence/product
           test -x evidence/product/authentication-service
           test "$(find evidence/product -maxdepth 1 -type f | wc -l)" -eq 1
-          evidence/product/authentication-service --version | grep -F '0.4.39' >/dev/null
+          evidence/product/authentication-service --version | grep -F '0.4.40' >/dev/null
           sha256sum "$artifact" > evidence/authentication-service.tar.xz.sha256
           docker run --rm --entrypoint go \
             --volume "$PWD:/work:ro" \

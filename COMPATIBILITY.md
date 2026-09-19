@@ -31,6 +31,13 @@ The empty allowlist must be present as an explicit `value: ""` field in the
 platform setting update. Generated client omission rules must not turn the
 clear operation into a no-op.
 
+Legacy provider settings are imported only while no encrypted `auth.config`
+object exists. After that migration boundary, the common access-policy
+settings are authoritative: startup and restart must not copy absent legacy
+OIDC keys over a saved access mode or allowlist. Both an explicit empty
+unrestricted allowlist and a populated restricted/required allowlist must
+round-trip across authentication-service and Server container restarts.
+
 Operator lifecycle messages support `en-US` and `zh-TW`. Tokens, usernames,
 groups, identity-provider data, OpenID Connect claims, SAML documents,
 database settings, HTTP payloads, and protocol errors are not translated.

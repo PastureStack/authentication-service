@@ -208,7 +208,8 @@ jobs:
 
           {
             printf '# PastureStack Authentication Service %s\n\n' "$RELEASE_TAG"
-            printf 'This release preserves an explicit empty OIDC allowlist on the platform API wire. It avoids the generated setting client omitting an empty value, so a confirmed unrestricted transition durably clears stale restricted identities. Access-only changes continue to skip discovery and provider reload; access expansion remains protected by a single-use MFA confirmation bound to the operator and canonical request digest.\n\n'
+            printf 'This release makes the common OIDC site-access policy authoritative after the encrypted authentication configuration has been created. Authentication-service startup no longer replays absent legacy OIDC keys over a saved restricted or unrestricted policy, so access mode and allowlist values survive process and Server container restarts. The one-time legacy migration path remains available before the canonical configuration exists.\n\n'
+            printf 'It also preserves the previous explicit-empty allowlist wire contract: a confirmed unrestricted transition durably clears stale restricted identities. Access-only changes continue to skip discovery and provider reload; access expansion remains protected by a single-use MFA confirmation bound to the operator and canonical request digest.\n\n'
             printf '## Immutable coordinates\n\n'
             printf -- '- Source commit: `%s`\n' "$SOURCE_SHA"
             printf -- '- Artifact SHA-256: `%s`\n\n' "$artifact_sha"

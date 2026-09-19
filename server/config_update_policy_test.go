@@ -423,6 +423,49 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 	}
 }
 
+func TestUpgradeSettingsDoesNotReplayLegacyMigrationAfterCanonicalConfigExists(t *testing.T) {
+	genericObjectReads := 0
+	settingRequests := 0
+	var platformServer *httptest.Server
+	platformServer = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v2-beta":
+			response.Header().Set("X-API-Schemas", platformServer.URL+"/v2-beta")
+			_, _ = fmt.Fprintf(response, `{"data":[{"id":"genericObject","type":"schema","pluralName":"genericObjects","collectionMethods":["GET"],"resourceMethods":["GET","PUT"],"links":{"collection":%q}},{"id":"setting","type":"schema","pluralName":"settings","collectionMethods":["GET"],"resourceMethods":["GET","PUT"],"links":{"collection":%q}}]}`,
+				platformServer.URL+"/v2-beta/genericObjects", platformServer.URL+"/v2-beta/settings")
+		case request.Method == http.MethodGet && request.URL.Path == "/v2-beta/genericObjects":
+			genericObjectReads++
+			_, _ = fmt.Fprint(response, `{"type":"collection","resourceType":"genericObject","data":[{"id":"1go1","type":"genericObject","key":"auth.config","name":"auth.config","kind":"authConfig","resourceData":{}}]}`)
+		case strings.HasPrefix(request.URL.Path, "/v2-beta/settings"):
+			settingRequests++
+			http.Error(response, "legacy settings must not be read after migration", http.StatusInternalServerError)
+		default:
+			t.Errorf("unexpected platform request %s %s", request.Method, request.URL.String())
+			http.Error(response, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer platformServer.Close()
+
+	platformClient, err := newPlatformClient(platformServer.URL, "access", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPlatformClient := PlatformClient
+	PlatformClient = platformClient
+	defer func() { PlatformClient = previousPlatformClient }()
+
+	if err := UpgradeSettings(); err != nil {
+		t.Fatal(err)
+	}
+	if genericObjectReads != 1 {
+		t.Fatalf("expected one canonical config lookup, got %d", genericObjectReads)
+	}
+	if settingRequests != 0 {
+		t.Fatalf("legacy settings were touched %d times after migration", settingRequests)
+	}
+}
+
 func oidcConfigForPolicyTest(enabled bool, accessMode string, identities ...client.Identity) model.AuthConfig {
 	return model.AuthConfig{
 		Provider:          oidcProviderName,
