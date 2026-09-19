@@ -20,6 +20,9 @@ enabled, unchanged OIDC provider must not repeat discovery, key retrieval, or
 provider initialization. Initial enablement, changing provider type, or
 changing the OIDC identity source still requires a fresh local-recovery check
 and successful provider initialization.
+This includes reload requests emitted by platform setting events after the
+policy write: an already-live provider adopts the updated access policy in
+memory, while startup and source changes still initialize the provider.
 
 Expanding access requires a one-time Engine MFA security confirmation bound to
 the authenticated operator, purpose `oidcAccessPolicyUpdate`, and the canonical

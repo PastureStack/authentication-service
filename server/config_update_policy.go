@@ -169,6 +169,19 @@ func planOIDCConfigUpdate(current model.AuthConfig, requested model.AuthConfig) 
 	}, nil
 }
 
+// canApplyOIDCReloadWithoutInitialization keeps platform setting events from
+// turning an access-policy-only save into a second provider initialization.
+// The provider must already be live; startup, first enablement, provider
+// switches, and identity-source changes continue through the full reload path.
+func canApplyOIDCReloadWithoutInitialization(current model.AuthConfig,
+	requested model.AuthConfig, providerReady bool) bool {
+	if !providerReady {
+		return false
+	}
+	plan, err := planOIDCConfigUpdate(current, requested)
+	return err == nil && plan.SameProvider && !plan.RequiresProviderInitialization
+}
+
 func oidcIdentitySourceChanged(current model.OIDCConfig, requested model.OIDCConfig) bool {
 	return current.WellKnownURL != requested.WellKnownURL ||
 		current.ClientID != requested.ClientID ||

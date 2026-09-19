@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The current compatibility release is `v0.4.40`. It retains the existing Ubuntu 26.04,
+The current compatibility release is `v0.4.41`. It retains the existing Ubuntu 26.04,
 Go 1.27.0, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
 authorization-code client with discovery, PKCE S256, nonce validation,
@@ -21,7 +21,7 @@ single-use signed identity proof. The control platform uses that proof for an
 explicit account-link or reassignment decision; profile fields are never
 trusted as implicit account-matching keys.
 
-Release `v0.4.40` separates OIDC identity-source changes from site-access
+Release `v0.4.41` separates OIDC identity-source changes from site-access
 policy changes. An already-enabled provider can change access mode and its
 OIDC user/group allowlist without repeating discovery, emitting a provider
 reload generation, or repeating the five-minute local recovery ceremony.
@@ -43,6 +43,11 @@ empty legacy OIDC keys over the authoritative access mode or allowlist. This
 keeps restricted `oidc_user` and `oidc_group` entries intact across service and
 Server container restarts while retaining the one-time migration path for old
 installations.
+Platform setting events can request a reload after a policy save. When the
+active OIDC provider and identity source are unchanged, that reload now adopts
+the persisted access policy in memory without repeating discovery, key
+retrieval, or provider construction. Startup, first enablement, provider
+switches, and identity-source changes retain the full initialization path.
 
 Product-owned imports, executable names, CLI settings, client variables, and
 operator messages use PastureStack naming.
@@ -61,9 +66,9 @@ make build
 make package
 ```
 
-Set `VERSION_OVERRIDE=v0.4.40` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.41` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.40-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.41-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the
