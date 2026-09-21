@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The current compatibility release is `v0.4.41`. It retains the existing Ubuntu 26.04,
+The current compatibility release is `v0.4.42`. It retains the existing Ubuntu 26.04,
 Go 1.27.0, JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
 authorization-code client with discovery, PKCE S256, nonce validation,
@@ -21,7 +21,16 @@ single-use signed identity proof. The control platform uses that proof for an
 explicit account-link or reassignment decision; profile fields are never
 trusted as implicit account-matching keys.
 
-Release `v0.4.41` separates OIDC identity-source changes from site-access
+Release `v0.4.42` retains the source-versus-policy separation introduced in
+`v0.4.41` and also repairs the non-secret control-platform identity contract
+for an already stored OIDC provider. Startup, reload, and policy-only updates
+reconcile the OIDC user type, identity separator, provider selection, lookup
+capability, and external-provider flag in a fail-closed order without reading
+the client secret or repeating discovery. This lets databases upgraded from an
+older release recover from incomplete common settings instead of failing the
+final token exchange with `Identity externalIdType is invalid`.
+
+The release separates OIDC identity-source changes from site-access
 policy changes. An already-enabled provider can change access mode and its
 OIDC user/group allowlist without repeating discovery, emitting a provider
 reload generation, or repeating the five-minute local recovery ceremony.
@@ -66,9 +75,9 @@ make build
 make package
 ```
 
-Set `VERSION_OVERRIDE=v0.4.41` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.42` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.41-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.42-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the

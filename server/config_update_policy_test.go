@@ -352,6 +352,12 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 		accessModeSetting:                "restricted",
 		securitySetting:                  "true",
 		authServiceConfigUpdateTimestamp: "unchanged-provider-reload-generation",
+		userTypeSetting:                  "legacy_user",
+		identitySeparatorSetting:         "#legacy#",
+		noIdentityLookupSupportedSetting: "false",
+		providerNameSetting:              "legacyconfig",
+		providerSetting:                  "legacyconfig",
+		externalProviderSetting:          "false",
 	}
 	var writes []string
 	var platformServer *httptest.Server
@@ -429,8 +435,36 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 	if settings[allowedIdentitiesSetting] != "" {
 		t.Fatalf("stored allowlist was not cleared: %q", settings[allowedIdentitiesSetting])
 	}
-	if len(writes) < 2 || writes[0] != allowedIdentitiesSetting || writes[1] != accessModeSetting {
-		t.Fatalf("allowlist was not cleared before the access mode changed: %#v", writes)
+	expectedPrefix := []string{
+		userTypeSetting,
+		identitySeparatorSetting,
+		noIdentityLookupSupportedSetting,
+		providerNameSetting,
+		providerSetting,
+		externalProviderSetting,
+		allowedIdentitiesSetting,
+		accessModeSetting,
+		securitySetting,
+	}
+	if len(writes) != len(expectedPrefix) {
+		t.Fatalf("unexpected OIDC repair/policy writes: %#v", writes)
+	}
+	for index, expected := range expectedPrefix {
+		if writes[index] != expected {
+			t.Fatalf("OIDC settings were not repaired in fail-closed order: got %#v, expected %#v", writes, expectedPrefix)
+		}
+	}
+	for key, expected := range map[string]string{
+		userTypeSetting:                  "oidc_user",
+		identitySeparatorSetting:         "#oidc#",
+		noIdentityLookupSupportedSetting: "true",
+		providerNameSetting:              "oidcconfig",
+		providerSetting:                  "oidcconfig",
+		externalProviderSetting:          "true",
+	} {
+		if settings[key] != expected {
+			t.Fatalf("OIDC platform contract setting %s = %q, expected %q", key, settings[key], expected)
+		}
 	}
 	for _, setting := range writes {
 		if setting == authServiceConfigUpdateTimestamp {
@@ -447,6 +481,67 @@ func TestPolicyOnlyUpdateClearsStoredAllowlistWithoutDiscovery(t *testing.T) {
 	}
 	if reread[allowedIdentitiesSetting] != "" || reread[accessModeSetting] != "unrestricted" {
 		t.Fatalf("stored policy did not round-trip after clearing: %#v", reread)
+	}
+}
+
+func TestOIDCCommonSettingReconciliationIsIdempotentAndDoesNotTouchPolicy(t *testing.T) {
+	settings := map[string]string{
+		userTypeSetting:                  "oidc_user",
+		identitySeparatorSetting:         "#oidc#",
+		noIdentityLookupSupportedSetting: "true",
+		providerNameSetting:              "oidcconfig",
+		providerSetting:                  "oidcconfig",
+		externalProviderSetting:          "true",
+		allowedIdentitiesSetting:         "oidc_group:operators",
+		accessModeSetting:                "restricted",
+		securitySetting:                  "true",
+	}
+	var writes []string
+	var platformServer *httptest.Server
+	platformServer = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet && request.URL.Path == "/v2-beta" {
+			response.Header().Set("X-API-Schemas", platformServer.URL+"/v2-beta")
+			_, _ = fmt.Fprintf(response, `{"data":[{"id":"setting","type":"schema","pluralName":"settings","collectionMethods":["GET"],"resourceMethods":["GET","PUT"],"links":{"collection":%q}}]}`,
+				platformServer.URL+"/v2-beta/settings")
+			return
+		}
+		const prefix = "/v2-beta/settings/"
+		if !strings.HasPrefix(request.URL.Path, prefix) {
+			http.Error(response, "unexpected platform path", http.StatusNotFound)
+			return
+		}
+		name := strings.TrimPrefix(request.URL.Path, prefix)
+		switch request.Method {
+		case http.MethodGet:
+			_, _ = fmt.Fprintf(response, `{"id":%q,"type":"setting","activeValue":%q,"value":%q,"links":{"self":%q}}`,
+				name, settings[name], settings[name], platformServer.URL+request.URL.Path)
+		case http.MethodPut:
+			writes = append(writes, name)
+			http.Error(response, "an aligned setting must not be rewritten", http.StatusInternalServerError)
+		default:
+			http.Error(response, "unexpected platform method", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer platformServer.Close()
+
+	platformClient, err := newPlatformClient(platformServer.URL, "access", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPlatformClient := PlatformClient
+	PlatformClient = platformClient
+	defer func() { PlatformClient = previousPlatformClient }()
+
+	if err := reconcileOIDCCommonSettings(oidcConfigForPolicyTest(true, "restricted")); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 0 {
+		t.Fatalf("idempotent reconciliation rewrote aligned settings: %#v", writes)
+	}
+	if settings[allowedIdentitiesSetting] != "oidc_group:operators" ||
+		settings[accessModeSetting] != "restricted" || settings[securitySetting] != "true" {
+		t.Fatalf("reconciliation touched access policy: %#v", settings)
 	}
 }
 
