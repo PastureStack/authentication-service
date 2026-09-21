@@ -23,6 +23,13 @@ and successful provider initialization.
 This includes reload requests emitted by platform setting events after the
 policy write: an already-live provider adopts the updated access policy in
 memory, while startup and source changes still initialize the provider.
+An existing encrypted OIDC configuration is also authoritative for the
+non-secret platform identity contract. Startup, reload, and policy-only saves
+reconcile the OIDC user type, separator, provider selection, lookup capability,
+and external-provider switch before login can resume. The repair performs no
+discovery and never reads or rewrites the provider client secret; publishing
+the external-provider switch last prevents a partially repaired configuration
+from accepting an identity.
 
 Expanding access requires a one-time Engine MFA security confirmation bound to
 the authenticated operator, purpose `oidcAccessPolicyUpdate`, and the canonical

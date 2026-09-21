@@ -485,27 +485,48 @@ func updateSettings(saveConfig map[string]map[string]string, secretSettings []st
 
 func updateCommonSettings(settings map[string]string) error {
 	for key, value := range settings {
-		if !shouldUpdateCommonSetting(key, value) {
-			continue
-		}
-		log.Debugf("Updating platform setting %v", key)
-		setting, err := PlatformClient.Setting.ById(key)
-		if err != nil {
-			log.Errorf("Error getting the setting %v , error: %v", key, err)
+		if err := updateCommonSetting(key, value); err != nil {
 			return err
 		}
+	}
+	return nil
+}
 
-		// The generated Setting.Value field uses json:",omitempty". A typed
-		// Setting therefore drops the field when an unrestricted OIDC policy
-		// intentionally clears the allowlist. Use an explicit wire payload so
-		// an empty value remains distinguishable from "leave unchanged".
-		setting, err = PlatformClient.Setting.Update(setting, map[string]interface{}{
-			"value": value,
-		})
-		if err != nil {
-			log.Errorf("Error updating the setting %v: %v", key, err)
+type commonSettingUpdate struct {
+	key   string
+	value string
+}
+
+func updateCommonSettingsInOrder(settings []commonSettingUpdate) error {
+	for _, setting := range settings {
+		if err := updateCommonSetting(setting.key, setting.value); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func updateCommonSetting(key string, value string) error {
+	if !shouldUpdateCommonSetting(key, value) {
+		return nil
+	}
+	log.Debugf("Updating platform setting %v", key)
+	setting, err := PlatformClient.Setting.ById(key)
+	if err != nil {
+		log.Errorf("Error getting the setting %v , error: %v", key, err)
+		return err
+	}
+
+	// The generated Setting.Value field uses json:",omitempty". A typed
+	// Setting therefore drops the field when an unrestricted OIDC policy
+	// intentionally clears the allowlist. Use an explicit wire payload so an
+	// empty value remains distinguishable from "leave unchanged".
+	_, err = PlatformClient.Setting.Update(setting, map[string]interface{}{
+		"value": value,
+	})
+	if err != nil {
+		log.Errorf("Error updating the setting %v: %v", key, err)
+		return err
 	}
 	return nil
 }
@@ -515,6 +536,61 @@ func shouldUpdateCommonSetting(key string, value string) bool {
 	// settings except the OIDC allowlist.  An unrestricted policy must be able
 	// to persist an explicit empty allowlist instead of retaining stale entries.
 	return value != "" || key == allowedIdentitiesSetting
+}
+
+func oidcCommonSettingUpdates(authConfig model.AuthConfig, oidcProvider providers.IdentityProvider) []commonSettingUpdate {
+	// Keep the external-provider switch last. The control platform can observe
+	// each setting update independently; publishing the switch only after the
+	// provider name, type, separator, and lookup contract prevents a partially
+	// configured OIDC provider from accepting a login in the middle of repair.
+	return []commonSettingUpdate{
+		{userTypeSetting, oidcProvider.GetUserType()},
+		{identitySeparatorSetting, oidcProvider.GetIdentitySeparator()},
+		{noIdentityLookupSupportedSetting, strconv.FormatBool(!oidcProvider.IsIdentityLookupSupported())},
+		{providerNameSetting, authConfig.Provider},
+		{providerSetting, authConfig.Provider},
+		{externalProviderSetting, "true"},
+	}
+}
+
+// reconcileOIDCCommonSettings repairs the non-secret control-platform
+// contract for an already stored OIDC provider. Older installations can have
+// a valid encrypted auth.config and still retain missing or stale common
+// settings. In that state the identity provider completes successfully, but
+// the control platform rejects oidc_user/oidc_group while creating its token.
+// Reconciliation performs no discovery and never reads or rewrites the client
+// secret.
+func reconcileOIDCCommonSettings(authConfig model.AuthConfig) error {
+	if !strings.EqualFold(authConfig.Provider, oidcProviderName) {
+		return nil
+	}
+	oidcProvider, err := providers.GetProvider(authConfig.Provider)
+	if err != nil {
+		return err
+	}
+	if oidcProvider == nil {
+		return fmt.Errorf("Could not get the %s auth provider", authConfig.Provider)
+	}
+
+	desired := oidcCommonSettingUpdates(authConfig, oidcProvider)
+	keys := make([]string, 0, len(desired))
+	for _, setting := range desired {
+		keys = append(keys, setting.key)
+	}
+	current, err := readCommonSettings(keys)
+	if err != nil {
+		return err
+	}
+	for _, setting := range desired {
+		if current[setting.key] == setting.value {
+			continue
+		}
+		log.Warnf("Repairing stale OpenID Connect platform setting %s", setting.key)
+		if err := updateCommonSetting(setting.key, setting.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getAllowedIDString(allowedIdentities []client.Identity, separator string) string {
@@ -648,26 +724,29 @@ func UpdateConfigWithRequest(authConfig model.AuthConfig, updateRequest ConfigUp
 		return err
 	}
 
-	//add the generic settings
-	commonSettings := make(map[string]string)
-	commonSettings[accessModeSetting] = authConfig.AccessMode
-	commonSettings[userTypeSetting] = newProvider.GetUserType()
-	commonSettings[identitySeparatorSetting] = newProvider.GetIdentitySeparator()
-	commonSettings[allowedIdentitiesSetting] = getAllowedIDString(authConfig.AllowedIdentities, newProvider.GetIdentitySeparator())
-	commonSettings[providerNameSetting] = authConfig.Provider
-	commonSettings[providerSetting] = authConfig.Provider
-	commonSettings[externalProviderSetting] = "true"
-	commonSettings[noIdentityLookupSupportedSetting] = strconv.FormatBool(!newProvider.IsIdentityLookupSupported())
-	err = updateCommonSettings(commonSettings)
+	// Publish the provider contract in a deterministic order, then its access
+	// policy. The external-provider switch is deliberately the last contract
+	// setting so the control platform never sees a half-configured provider.
+	commonSettings := []commonSettingUpdate{
+		{userTypeSetting, newProvider.GetUserType()},
+		{identitySeparatorSetting, newProvider.GetIdentitySeparator()},
+		{noIdentityLookupSupportedSetting, strconv.FormatBool(!newProvider.IsIdentityLookupSupported())},
+		{providerNameSetting, authConfig.Provider},
+		{providerSetting, authConfig.Provider},
+		{externalProviderSetting, "true"},
+		{allowedIdentitiesSetting, getAllowedIDString(authConfig.AllowedIdentities, newProvider.GetIdentitySeparator())},
+		{accessModeSetting, authConfig.AccessMode},
+	}
+	err = updateCommonSettingsInOrder(commonSettings)
 	if err != nil {
 		return errors.Wrap(err, "UpdateConfig: Error Storing the common settings")
 	}
 
 	//set the security setting last specifically
-	commonSettings = make(map[string]string)
-	commonSettings[securitySetting] = strconv.FormatBool(authConfig.Enabled)
-	commonSettings[authServiceConfigUpdateTimestamp] = time.Now().String()
-	err = updateCommonSettings(commonSettings)
+	err = updateCommonSettingsInOrder([]commonSettingUpdate{
+		{securitySetting, strconv.FormatBool(authConfig.Enabled)},
+		{authServiceConfigUpdateTimestamp, time.Now().String()},
+	})
 	if err != nil {
 		return errors.Wrap(err, "UpdateConfig: Error Storing the provider securitySetting")
 	}
@@ -726,19 +805,17 @@ func updateOIDCConfigWithoutInitialization(currentConfig model.AuthConfig, authC
 			return errors.Wrap(err, "UpdateConfig: Error storing OpenID Connect display settings")
 		}
 	}
+	if err := reconcileOIDCCommonSettings(authConfig); err != nil {
+		return errors.Wrap(err, "UpdateConfig: Error repairing the OpenID Connect platform contract")
+	}
 
-	orderedSettings := []struct {
-		key   string
-		value string
-	}{
+	orderedSettings := []commonSettingUpdate{
 		{allowedIdentitiesSetting, getAllowedIDString(authConfig.AllowedIdentities, newProvider.GetIdentitySeparator())},
 		{accessModeSetting, authConfig.AccessMode},
 		{securitySetting, strconv.FormatBool(authConfig.Enabled)},
 	}
-	for _, setting := range orderedSettings {
-		if err := updateCommonSettings(map[string]string{setting.key: setting.value}); err != nil {
-			return errors.Wrap(err, "UpdateConfig: Error storing OpenID Connect access policy")
-		}
+	if err := updateCommonSettingsInOrder(orderedSettings); err != nil {
+		return errors.Wrap(err, "UpdateConfig: Error storing OpenID Connect access policy")
 	}
 	updateOIDCConfigInMemory(authConfig)
 	return nil
@@ -1074,6 +1151,12 @@ func Reload(fromUpdate bool) (bool, error) {
 			authConfigInMemory = authConfig
 			<-*refreshReqChannel
 			return false, nil
+		}
+		if strings.EqualFold(authConfig.Provider, oidcProviderName) {
+			if err := reconcileOIDCCommonSettings(authConfig); err != nil {
+				<-*refreshReqChannel
+				return false, errors.Wrap(err, "Reload: Could not repair the OpenID Connect platform contract")
+			}
 		}
 
 		if strings.EqualFold(authConfig.Provider, oidcProviderName) &&

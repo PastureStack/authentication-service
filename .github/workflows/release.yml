@@ -208,8 +208,8 @@ jobs:
 
           {
             printf '# PastureStack Authentication Service %s\n\n' "$RELEASE_TAG"
-            printf 'This release makes the common OIDC site-access policy authoritative after the encrypted authentication configuration has been created. Authentication-service startup no longer replays absent legacy OIDC keys over a saved restricted or unrestricted policy, so access mode and allowlist values survive process and Server container restarts. The one-time legacy migration path remains available before the canonical configuration exists.\n\n'
-            printf 'It also preserves the previous explicit-empty allowlist wire contract: a confirmed unrestricted transition durably clears stale restricted identities. Access-only changes continue to skip discovery and provider reload; access expansion remains protected by a single-use MFA confirmation bound to the operator and canonical request digest.\n\n'
+            printf 'This release repairs the non-secret control-platform identity contract for an already stored OpenID Connect provider. Startup, reload, and policy-only updates reconcile the OIDC user type, identity separator, provider selection, lookup capability, and external-provider flag in a fail-closed order. It performs no discovery and never reads or rewrites the client secret. Upgraded databases with incomplete common settings therefore no longer fail the final token exchange with `Identity externalIdType is invalid`.\n\n'
+            printf 'The existing source-versus-policy separation, explicit-empty allowlist wire contract, restart persistence, actor-bound MFA confirmation, and one-time legacy migration boundary remain intact. Reconciliation is idempotent and does not rewrite aligned policy or security settings.\n\n'
             printf '## Immutable coordinates\n\n'
             printf -- '- Source commit: `%s`\n' "$SOURCE_SHA"
             printf -- '- Artifact SHA-256: `%s`\n\n' "$artifact_sha"
