@@ -1,0 +1,131 @@
+#!/bin/sh
+# Resolve only from the signed frozen indexes. Change payload transport, not versions.
+set -efu
+LC_ALL=C
+export LC_ALL
+
+fail()
+{
+    printf 'SNAPSHOT_PACKAGES_FAIL reason=%s\n' "$1" >&2
+    exit 1
+}
+
+case "${1:-}" in install|upgrade) ;; *) fail unsupported_operation ;; esac
+for argument do
+    case "$argument" in
+        install|upgrade|-y|--yes|--no-install-recommends) ;;
+        ''|-*|*[!a-zA-Z0-9.+:~=_-]*) fail unsupported_argument ;;
+    esac
+done
+
+. /licenses/ubuntu-apt.lock
+for snapshot in "$UBUNTU_APT_SNAPSHOT" "$UBUNTU_APT_SECURITY_SNAPSHOT"; do
+    printf '%s\n' "$snapshot" | grep -Eq '^[0-9]{8}T[0-9]{6}Z$' || fail invalid_snapshot_lock
+done
+archives=/var/cache/apt/archives
+work=$(mktemp -d)
+cache_copy=
+cleanup()
+{
+    [ -z "$cache_copy" ] || rm -f -- "$cache_copy"
+    rm -f -- "$work/payload/package.deb" "$work/payload/package.deb.FAILED"
+    [ ! -d "$work/payload" ] || rmdir -- "$work/payload"
+    rm -f -- "$work/plan.raw" "$work/plan.tsv" "$work/names"
+    rmdir -- "$work"
+}
+trap cleanup 0
+trap 'exit 1' 1 2 15
+chmod 0711 "$work"
+mkdir -m 0700 "$work/payload"
+chown _apt "$work/payload"
+mkdir -p "$archives"
+
+# These options do not add or refresh any index. The final command keeps the
+# caller's exact operation/package arguments, but cannot download another plan.
+apt-get -o Acquire::ForceHash=SHA256 -o "Dir::Cache::archives=$archives" \
+    --print-uris --download-only -y "$@" > "$work/plan.raw"
+: > "$work/plan.tsv"
+: > "$work/names"
+
+decode_leaf()
+{
+    # APT may escape epochs, plus and tilde. Encoded slash/dot/space is not a leaf.
+    printf '%s' "$1" | sed -e 's/%3[aA]/:/g' -e 's/%2[bB]/+/g' -e 's/%7[eE]/~/g'
+}
+
+parse_plan()
+{
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            \'*) ;;
+            *://*|*SHA256:*|*.deb*) fail malformed_plan ;;
+            *) continue ;;
+        esac
+        # Globbing is disabled; never eval APT's quoted URI or any plan text.
+        set -- $line
+        [ "$#" -eq 4 ] || fail malformed_plan
+        case "$1" in \'*\') uri=${1#\'}; uri=${uri%\'} ;; *) fail malformed_plan ;; esac
+        filename=$2
+        size=$3
+        case "$4" in SHA256:*) hash=${4#SHA256:} ;; *) fail missing_sha256 ;; esac
+        printf '%s\n' "$hash" | grep -Eq '^[0-9a-fA-F]{64}$' || fail invalid_sha256
+        hash=$(printf '%s' "$hash" | tr A-F a-f)
+        printf '%s\n' "$size" | grep -Eq '^[1-9][0-9]*$' || fail invalid_size
+        printf '%s\n' "$filename" | grep -Eq '^[a-zA-Z0-9][a-zA-Z0-9.+~%:_-]*\.deb$' || fail invalid_filename
+        case "$uri" in
+            https://snapshot.ubuntu.com/ubuntu/*) relative=${uri#https://snapshot.ubuntu.com/ubuntu/} ;;
+            *) fail invalid_snapshot_uri ;;
+        esac
+        date=${relative%%/*}
+        case "$date" in "$UBUNTU_APT_SNAPSHOT"|"$UBUNTU_APT_SECURITY_SNAPSHOT") ;; *) fail unlocked_snapshot ;; esac
+        pool=${relative#*/}
+        printf '%s\n' "$pool" | grep -Eq '^pool/(main|universe)/[a-z0-9][a-z0-9+.-]*/[a-z0-9][a-z0-9+.-]*/[a-zA-Z0-9][a-zA-Z0-9.+~%:_-]*\.deb$' || fail invalid_pool_path
+        leaf=$(decode_leaf "${pool##*/}")
+        cache_leaf=$(decode_leaf "$filename")
+        case "$leaf$cache_leaf" in *%*) fail invalid_leaf_escape ;; esac
+        # The pool omits a Debian version epoch; APT's cache name retains it
+        # (for example git_1%3a2.53.0-1ubuntu1_amd64.deb). Only a numeric epoch
+        # immediately after the package separator may be removed for comparison.
+        pool_cache_leaf=$(printf '%s' "$cache_leaf" | sed 's/_[0-9][0-9]*:/_/')
+        [ "$leaf" = "$cache_leaf" ] || [ "$leaf" = "$pool_cache_leaf" ] || fail mismatched_filename
+        if grep -Fx -- "$cache_leaf" "$work/names" >/dev/null; then fail duplicate_filename; fi
+        printf '%s\n' "$cache_leaf" >> "$work/names"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$uri" "$pool" "$filename" "$size" "$hash" >> "$work/plan.tsv"
+    done < "$work/plan.raw"
+}
+parse_plan
+
+verified()
+{
+    [ -f "$1" ] || return 1
+    [ "$(wc -c < "$1" | tr -d '[:space:]')" = "$size" ] || return 1
+    actual=$(sha256sum "$1")
+    [ "${actual%% *}" = "$hash" ]
+}
+
+download()
+{
+    rm -f -- "$work/payload/package.deb" "$work/payload/package.deb.FAILED"
+    /usr/lib/apt/apt-helper -o Acquire::Retries=1 \
+        -o Acquire::https::Timeout=15 -o Acquire::http::Timeout=15 \
+        download-file "$1" "$work/payload/package.deb" "SHA256:$hash" && verified "$work/payload/package.deb"
+}
+
+tab=$(printf '\t')
+while IFS="$tab" read -r uri pool filename size hash; do
+    destination=$archives/$filename
+    if verified "$destination"; then continue; fi
+    [ ! -d "$destination" ] || fail invalid_cache_destination
+    if download "https://archive.ubuntu.com/ubuntu/$pool" || download "$uri"; then
+        cache_copy=$(mktemp "$archives/.snapshot-package.XXXXXX")
+        cp -- "$work/payload/package.deb" "$cache_copy"
+        chmod 0644 "$cache_copy"
+        mv -f -- "$cache_copy" "$destination"
+        cache_copy=
+        verified "$destination" || fail cache_verification_failed
+    else
+        fail package_download_failed
+    fi
+done < "$work/plan.tsv"
+
+apt-get -o "Dir::Cache::archives=$archives" --no-download "$@"

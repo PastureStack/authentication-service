@@ -10,6 +10,14 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
+The `v0.4.44` candidate rebuilds the unchanged runtime with Go 1.27.3.
+Its disposable AMD64 release builder pins the official curl 8.18.0-1ubuntu2.8
+payload hashes, plus OpenSSL 3.5.5-1ubuntu3.7 from the signed frozen Ubuntu snapshot.
+Linux user-space headers are pinned to 7.0.0-38.38; exact reviewed header-only
+VEX statements do not claim a host-kernel fix or cover the Go runtime.
+The existing raw-to-VEX equality, no-kernel-package and independent product
+gates remain required. Candidate checks and publication are not yet complete.
+
 The current compatibility release candidate is `v0.4.44`; existing published
 tags and assets remain immutable. It retains the existing Ubuntu 26.04,
 JWT, cookie, TLS, LDAP, GitHub, Shibboleth,

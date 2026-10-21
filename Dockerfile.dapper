@@ -1,7 +1,11 @@
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
+COPY --chmod=0755 scripts/install-snapshot-packages /usr/local/bin/install-snapshot-packages
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb /tmp/ca-certificates.deb
+ADD --checksum=sha256:2c418a61d7165d0cde01d9cb05ae025cc41fc75ef6d3f095996bd045ba0945dc https://security.ubuntu.com/ubuntu/pool/main/c/curl/curl_8.18.0-1ubuntu2.8_amd64.deb /tmp/curl.deb
+ADD --checksum=sha256:8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3444d8e https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl3t64-gnutls.deb
+ADD --checksum=sha256:7c0b37592f83a629cc22f0c98effa176da9edbd6d77b3f38184a9d0ddc5e0266 https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4t64_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl4t64.deb
 
 ARG DAPPER_HOST_ARCH=amd64
 ARG GO_VERSION=1.27.3
@@ -26,14 +30,14 @@ RUN set -eux; \
         | while IFS= read -r certificate; do sed -e '$a\' "${certificate}"; done \
         > /etc/ssl/certs/ca-certificates.crt; \
     test -s /etc/ssl/certs/ca-certificates.crt; \
-    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
         "${UBUNTU_APT_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-snapshot.sources; \
     printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\nAcquire::https::Verify-Peer "true";\nAcquire::https::Verify-Host "true";\nAcquire::AllowInsecureRepositories "false";\nAPT::Get::AllowUnauthenticated "false";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
     apt-get update; \
-    apt-get install -y --no-install-recommends \
+    install-snapshot-packages install -y --no-install-recommends \
         bash="${UBUNTU_APT_BASH_VERSION}" \
         ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
-        curl="${UBUNTU_APT_CURL_VERSION}" \
+        curl="${UBUNTU_APT_CURL_BOOTSTRAP_VERSION}" \
         file="${UBUNTU_APT_FILE_VERSION}" \
         gcc="${UBUNTU_APT_GCC_VERSION}" \
         git="${UBUNTU_APT_GIT_VERSION}" \
@@ -41,8 +45,30 @@ RUN set -eux; \
         make="${UBUNTU_APT_MAKE_VERSION}" \
         tar="${UBUNTU_APT_TAR_VERSION}" \
         xz-utils="${UBUNTU_APT_XZ_UTILS_VERSION}"; \
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute-updates resolute-security\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
+        "${UBUNTU_APT_SECURITY_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-security.sources; \
+    apt-get update; \
+    install-snapshot-packages install -y --no-install-recommends \
+        linux-libc-dev="${UBUNTU_APT_LINUX_LIBC_DEV_VERSION}" \
+        libssl3t64="${UBUNTU_APT_OPENSSL_VERSION}" \
+        openssl="${UBUNTU_APT_OPENSSL_VERSION}" \
+        openssl-provider-legacy="${UBUNTU_APT_OPENSSL_VERSION}"; \
+    test "$(dpkg-query -W -f='${Version}' linux-libc-dev)" = "${UBUNTU_APT_LINUX_LIBC_DEV_VERSION}"; \
+    for package in libssl3t64 openssl openssl-provider-legacy; do \
+        test "$(dpkg-query -W -f='${Version}' "${package}")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
+    done; \
+    for package in curl libcurl3t64-gnutls libcurl4t64; do \
+        test "$(dpkg-deb -f "/tmp/${package}.deb" Package)" = "${package}"; \
+        test "$(dpkg-deb -f "/tmp/${package}.deb" Version)" = "${UBUNTU_APT_CURL_VERSION}"; \
+        test "$(dpkg-deb -f "/tmp/${package}.deb" Architecture)" = amd64; \
+    done; \
+    dpkg -i /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb; \
+    for package in curl libcurl3t64-gnutls libcurl4t64; do \
+        test "$(dpkg-query -W -f='${Version}' "${package}")" = "${UBUNTU_APT_CURL_VERSION}"; \
+    done; \
     { \
         printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; \
+        printf 'security-snapshot\t%s\n' "${UBUNTU_APT_SECURITY_SNAPSHOT}"; \
         dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; \
     } > /licenses/AUTHENTICATION-SERVICE-UBUNTU-APT-PACKAGES.tsv; \
     apt-get clean; \
