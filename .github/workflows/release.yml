@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Semantic release tag, for example v0.4.43
+        description: Semantic release tag, for example v0.4.44
         required: true
         type: string
 
@@ -208,6 +208,7 @@ jobs:
 
           {
             printf '# PastureStack Authentication Service %s\n\n' "$RELEASE_TAG"
+            printf 'This maintenance release rebuilds the unchanged compatibility behavior with checksum-pinned Go 1.27.3, including the crypto/x509 fix for CVE-2026-111943. Existing tags and assets remain immutable. Server assembly and runtime acceptance are separate.\n\n'
             printf 'This release repairs the non-secret control-platform identity contract for an already stored OpenID Connect provider. Startup, reload, and policy-only updates reconcile the OIDC user type, identity separator, provider selection, lookup capability, and external-provider flag in a fail-closed order. It performs no discovery and never reads or rewrites the client secret. Upgraded databases with incomplete common settings therefore no longer fail the final token exchange with `Identity externalIdType is invalid`.\n\n'
             printf 'The existing source-versus-policy separation, explicit-empty allowlist wire contract, restart persistence, actor-bound MFA confirmation, and one-time legacy migration boundary remain intact. Reconciliation is idempotent and does not rewrite aligned policy or security settings.\n\n'
             printf '## Immutable coordinates\n\n'

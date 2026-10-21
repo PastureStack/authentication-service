@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The current compatibility release candidate is `v0.4.43`; existing published
+The current compatibility release candidate is `v0.4.44`; existing published
 tags and assets remain immutable. It retains the existing Ubuntu 26.04,
 JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
@@ -76,13 +76,14 @@ make build
 make package
 ```
 
-The compiler archives are checksum-pinned Go 1.27.2 for Linux/amd64 and
+The compiler archives are checksum-pinned Go 1.27.3 for Linux/amd64 and
 Linux/arm64. This candidate's artifact qualification covers Linux/amd64 only,
-not an ARM64 binary build.
+not an ARM64 binary build. The compiler update includes the crypto/x509 fix
+for CVE-2026-111943; authentication behavior is unchanged.
 
-Set `VERSION_OVERRIDE=v0.4.43` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.44` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.43-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.44-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the
