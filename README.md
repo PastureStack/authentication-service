@@ -10,15 +10,17 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The `v0.4.44` candidate rebuilds the unchanged runtime with Go 1.27.3.
+Published maintenance release [`v0.4.44`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.44)
+rebuilds the unchanged runtime with Go 1.27.3.
 Its disposable AMD64 release builder pins the official curl 8.18.0-1ubuntu2.8
 payload hashes, plus OpenSSL 3.5.5-1ubuntu3.7 from the signed frozen Ubuntu snapshot.
 Linux user-space headers are pinned to 7.0.0-38.38; exact reviewed header-only
 VEX statements do not claim a host-kernel fix or cover the Go runtime.
 The existing raw-to-VEX equality, no-kernel-package and independent product
-gates remain required. Candidate checks and publication are not yet complete.
+gates remain required. Component publication and anonymous asset readback passed;
+matching Server assembly and runtime acceptance remain separate.
 
-The current compatibility release candidate is `v0.4.44`; existing published
+The current compatibility release is `v0.4.44`; existing published
 tags and assets remain immutable. It retains the existing Ubuntu 26.04,
 JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
@@ -85,7 +87,7 @@ make package
 ```
 
 The compiler archives are checksum-pinned Go 1.27.3 for Linux/amd64 and
-Linux/arm64. This candidate's artifact qualification covers Linux/amd64 only,
+Linux/arm64. This release's artifact qualification covers Linux/amd64 only,
 not an ARM64 binary build. The compiler update includes the crypto/x509 fix
 for CVE-2026-111943; authentication behavior is unchanged.
 
