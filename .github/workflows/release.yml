@@ -185,6 +185,17 @@ jobs:
             "$trivy_attestation_status" \
             >> "$GITHUB_ENV"
 
+      - name: Retain release artifacts and security evidence on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: authentication-service-release-${{ github.sha }}
+          path: |
+            source/dist/artifacts/
+            source/dist/security/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Attest product provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
