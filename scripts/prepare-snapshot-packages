@@ -1,5 +1,5 @@
 #!/bin/sh
-# Resolve only from the signed frozen indexes. Change payload transport, not versions.
+# Prepare verified APT cache payloads from signed frozen indexes; never install.
 set -efu
 LC_ALL=C
 export LC_ALL
@@ -40,8 +40,8 @@ mkdir -m 0700 "$work/payload"
 chown _apt "$work/payload"
 mkdir -p "$archives"
 
-# These options do not add or refresh any index. The final command keeps the
-# caller's exact operation/package arguments, but cannot download another plan.
+# These options do not add or refresh any index. The caller must run native
+# apt-get --no-download with these exact operation/package arguments afterwards.
 apt-get -o Acquire::ForceHash=SHA256 -o "Dir::Cache::archives=$archives" \
     --print-uris --download-only -y "$@" > "$work/plan.raw"
 : > "$work/plan.tsv"
@@ -127,5 +127,3 @@ while IFS="$tab" read -r uri pool filename size hash; do
         fail package_download_failed
     fi
 done < "$work/plan.tsv"
-
-apt-get -o "Dir::Cache::archives=$archives" --no-download "$@"
