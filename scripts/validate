@@ -31,6 +31,10 @@ test "$(go env GOVERSION)" = "$EXPECTED_GO_VERSION"
 . ./ubuntu-apt.lock
 while IFS='|' read -r package expected_version; do
     actual_version=$(dpkg-query -W -f='${Version}' "$package")
+    security_version=$(sed -n "s/^${package}=//p" /licenses/ubuntu-security-packages.lock)
+    if [ -n "$security_version" ]; then
+        expected_version=$security_version
+    fi
     if [ "$actual_version" != "$expected_version" ]; then
         printf 'Unexpected %s version: expected %s, found %s\n' \
             "$package" "$expected_version" "$actual_version" >&2
