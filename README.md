@@ -130,16 +130,23 @@ The inherited project remains licensed under [Apache License 2.0](LICENSE). Copy
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
 
-## Full-severity security rebuild candidate
+## Full-severity security release
 
-The next compatible release candidate is **v0.4.46** (not yet published). It keeps
+The compatible security release [v0.4.46](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.46) is published. It keeps
 the existing API and minimum Go language version while updating the compiler to
 Go 1.27.3, `golang.org/x/net` to v0.60.0 and `golang.org/x/crypto` to v0.57.0.
 The release gate now rejects every officially fixable vulnerability, regardless
 of severity, and any unreviewed low/medium or unknown finding. The sole OpenPGP
 VEX is bound to the exact module version and a recorded dependency graph proving
 that the vulnerable package is not imported. Previously published v0.4.45 is
-retained for provenance; it is not the fully patched candidate.
+retained for provenance and is superseded by v0.4.46.
+
+The published archive was built from producer
+`35333ee3e40d9de032c10307ee80113c980be00a`, with SHA256
+`15950344ac9cc688610eae6d1c023ae6ba66182de675f04445f4c98ced2f19ec`.
+See the [official publication](https://github.com/PastureStack/authentication-service/actions/runs/39974158355)
+for artifact evidence; deployment acceptance remains separate.
+
 ### Complete build-environment gate
 
 The Dapper scan retains all severities and requires nonempty package analysis for the expected Go binaries. Any available fixed version fails, including Low, Medium and Unknown findings. Other Low/Medium findings require an exact package/version/PURL entry backed by the official vendor tracker. The pinned userspace kernel-header exception additionally requires the reviewed CVE set, actual header payload paths, and absence of kernel images/modules; it never permits an available fix. Unknown module findings require the separately verified exact source package graph, not a generic severity exemption.
