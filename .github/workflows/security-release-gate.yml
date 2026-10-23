@@ -167,6 +167,10 @@ jobs:
             --offline-scan --scanners vuln,secret --format json \
             --output /work/evidence/dapper-image-raw.json "$DAPPER_IMAGE"
 
+          bash .github/scripts/check-builder-header-boundary.sh "$DAPPER_IMAGE" > evidence/dapper-header-boundary.json
+          python3 .github/scripts/test_builder_vulnerability_policy.py
+          python3 .github/scripts/enforce-runtime-vulnerabilities.py --scope builder --repository PastureStack/authentication-service < evidence/dapper-image-raw.json
+
           if test -f security/dapper.openvex.json; then
             jq -r '
               .Results[]?.Vulnerabilities[]?

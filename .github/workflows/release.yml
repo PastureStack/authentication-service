@@ -154,11 +154,20 @@ jobs:
             bash source/scripts/security-scan
 
           security_root="source/dist/security"
+          mkdir -p source/evidence
+          builder_image="pasturestack-authentication-service-release:${GITHUB_RUN_ID}"
+          "${trivy_root}/trivy" image --scanners vuln,secret --list-all-pkgs --format json \
+            --output source/evidence/dapper-image-raw.json "$builder_image"
+          bash source/.github/scripts/check-builder-header-boundary.sh "$builder_image" > source/evidence/dapper-header-boundary.json
+          python3 source/.github/scripts/test_builder_vulnerability_policy.py
+          python3 source/.github/scripts/enforce-runtime-vulnerabilities.py --scope builder --repository PastureStack/authentication-service < source/evidence/dapper-image-raw.json
+          "${trivy_root}/trivy" image --format cyclonedx --output "${security_root}/dapper.cdx.json" "$builder_image"
+          cp source/evidence/dapper-image-raw.json source/evidence/dapper-header-boundary.json "$security_root/"
           printf '%s\n' "$trivy_attestation_status" \
             >"${security_root}/trivy-attestation-verification.txt"
           (
             cd "$security_root"
-            sha256sum trivy-attestation-verification.txt \
+            sha256sum trivy-attestation-verification.txt dapper-image-raw.json dapper-header-boundary.json dapper.cdx.json \
               >>security-evidence.sha256
           )
           for report in source-security-scan.json product-security-scan.json; do
@@ -242,6 +251,9 @@ jobs:
             "${security_root}/product.cdx.json" \
             "${security_root}/source-security-scan.json" \
             "${security_root}/product-security-scan.json" \
+            "${security_root}/dapper-image-raw.json" \
+            "${security_root}/dapper.cdx.json" \
+            "${security_root}/dapper-header-boundary.json" \
             "${security_root}/source-critical-high.txt" \
             "${security_root}/product-critical-high.txt" \
             "${security_root}/openvex.json" \
