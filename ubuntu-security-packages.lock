@@ -1,0 +1,35 @@
+# Official Ubuntu 26.04 security/updates snapshot: 20261023T000000Z
+# Existing packages only; ABI series and unrelated packages are preserved.
+bsdutils=1:2.41.3-3ubuntu2.2
+curl=8.18.0-1ubuntu2.8
+diffutils=1:3.12-1ubuntu0.1
+gnu-coreutils=9.7-3ubuntu2.1
+gpgv=2.4.8-4ubuntu3.1
+libattr1=1:2.5.2-4ubuntu0.1
+libblkid1=2.41.3-3ubuntu2.2
+libbz2-1.0=1.0.8-6ubuntu0.1
+libc-bin=2.43-2ubuntu2.4
+libc-gconv-modules-extra=2.43-2ubuntu2.4
+libc6=2.43-2ubuntu2.4
+libc6-dev=2.43-2ubuntu2.4
+libc-dev-bin=2.43-2ubuntu2.4
+libexpat1=2.7.4-1ubuntu0.2
+libcurl4t64=8.18.0-1ubuntu2.8
+libgcrypt20=1.12.0-2ubuntu1.1
+libmount1=2.41.3-3ubuntu2.2
+libperl5.40=5.40.1-7ubuntu0.3
+libsmartcols1=2.41.3-3ubuntu2.2
+libssh2-1t64=1.11.1-1ubuntu0.26.04.4
+libssl3t64=3.5.5-1ubuntu3.7
+libuuid1=2.41.3-3ubuntu2.2
+linux-libc-dev=7.0.0-38.38
+login=1:4.16.0-2+really2.41.3-3ubuntu2.2
+mount=2.41.3-3ubuntu2.2
+openssl=3.5.5-1ubuntu3.7
+openssl-provider-legacy=3.5.5-1ubuntu3.7
+perl=5.40.1-7ubuntu0.3
+perl-base=5.40.1-7ubuntu0.3
+perl-modules-5.40=5.40.1-7ubuntu0.3
+util-linux=2.41.3-3ubuntu2.2
+zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2
+libsqlite3-0=3.46.1-9ubuntu0.3

@@ -1,9 +1,9 @@
 {
   "@context": "https://openvex.dev/ns/v0.2.0",
-  "@id": "https://github.com/PastureStack/authentication-service/security/openvex/2026-08-25",
+  "@id": "https://github.com/PastureStack/authentication-service/security/openvex/2026-10-23",
   "author": "PastureStack contributors",
-  "timestamp": "2026-08-25T00:29:00+08:00",
-  "version": 2,
+  "timestamp": "2026-10-23T14:00:00Z",
+  "version": 3,
   "statements": [
     {
       "vulnerability": {
@@ -11,7 +11,7 @@
       },
       "products": [
         {
-          "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
+          "@id": "pkg:golang/golang.org/x/crypto@v0.57.0"
         }
       ],
       "status": "not_affected",
