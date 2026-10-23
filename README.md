@@ -10,7 +10,11 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-Published maintenance release [`v0.4.45`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.45)
+The current compatibility release is [v0.4.46](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.46).
+Its original producer and archive checksum are recorded under
+[Full-severity security release](#full-severity-security-release).
+
+Previous maintenance release [`v0.4.45`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.45)
 rebuilds the unchanged runtime with Go 1.27.3.
 Its disposable AMD64 release builder pins the official curl 8.18.0-1ubuntu2.8
 payload hashes, plus OpenSSL 3.5.5-1ubuntu3.7 from the signed frozen Ubuntu snapshot.
@@ -20,10 +24,10 @@ The existing raw-to-VEX equality, no-kernel-package and independent product
 gates remain required. Component publication and anonymous asset readback passed;
 matching Server assembly and runtime acceptance remain separate.
 
-The current compatibility release is `v0.4.45`; existing published
-tags and assets remain immutable. It retains the existing Ubuntu 26.04,
+Existing published tags and assets remain immutable. The current release
+retains the existing Ubuntu 26.04,
 JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
-dependency, and build maintenance. It adds a provider-neutral OpenID Connect
+dependency, and build maintenance. It includes a provider-neutral OpenID Connect
 authorization-code client with discovery, PKCE S256, nonce validation,
 asymmetric ID-token verification, UserInfo subject matching, custom
 certificate-authority support, and a test-before-enable recovery flow.
@@ -91,9 +95,9 @@ Linux/arm64. This release's artifact qualification covers Linux/amd64 only,
 not an ARM64 binary build. The compiler update includes the crypto/x509 fix
 for CVE-2026-111943; authentication behavior is unchanged.
 
-Set `VERSION_OVERRIDE=v0.4.45` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.46` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.45-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.46-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the
