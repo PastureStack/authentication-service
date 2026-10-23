@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-Published maintenance release [`v0.4.44`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.44)
+Published maintenance release [`v0.4.45`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.45)
 rebuilds the unchanged runtime with Go 1.27.3.
 Its disposable AMD64 release builder pins the official curl 8.18.0-1ubuntu2.8
 payload hashes, plus OpenSSL 3.5.5-1ubuntu3.7 from the signed frozen Ubuntu snapshot.
@@ -20,7 +20,7 @@ The existing raw-to-VEX equality, no-kernel-package and independent product
 gates remain required. Component publication and anonymous asset readback passed;
 matching Server assembly and runtime acceptance remain separate.
 
-The current compatibility release is `v0.4.44`; existing published
+The current compatibility release is `v0.4.45`; existing published
 tags and assets remain immutable. It retains the existing Ubuntu 26.04,
 JWT, cookie, TLS, LDAP, GitHub, Shibboleth,
 dependency, and build maintenance. It adds a provider-neutral OpenID Connect
@@ -91,9 +91,9 @@ Linux/arm64. This release's artifact qualification covers Linux/amd64 only,
 not an ARM64 binary build. The compiler update includes the crypto/x509 fix
 for CVE-2026-111943; authentication behavior is unchanged.
 
-Set `VERSION_OVERRIDE=v0.4.44` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.45` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.44-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.45-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the
@@ -125,3 +125,7 @@ See [OpenID Connect](docs/openid-connect.md),
 ## License and attribution
 
 The inherited project remains licensed under [Apache License 2.0](LICENSE). Copyright and attribution for inherited work and vendored dependencies remain with their respective authors and contributors. PastureStack contributors claim authorship only for their own changes.
+
+## October 2026 security maintenance
+
+Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
