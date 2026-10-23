@@ -20,7 +20,7 @@ jobs:
     env:
       DAPPER_IMAGE: pasturestack/authentication-service-dapper:${{ github.sha }}
       TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
-      VERSION_OVERRIDE: v0.4.45
+      VERSION_OVERRIDE: v0.4.46
     steps:
       - name: Check out candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,7 +70,7 @@ jobs:
           }
 
           run_ci
-          artifact="dist/artifacts/authentication-service-0.4.45-linux-amd64.tar.xz"
+          artifact="dist/artifacts/authentication-service-0.4.46-linux-amd64.tar.xz"
           test -s "$artifact"
           cp "$artifact" /tmp/authentication-service-first.tar.xz
           rm -rf bin dist
@@ -81,13 +81,27 @@ jobs:
           tar -xJf "$artifact" -C evidence/product
           test -x evidence/product/authentication-service
           test "$(find evidence/product -maxdepth 1 -type f | wc -l)" -eq 1
-          evidence/product/authentication-service --version | grep -F '0.4.45' >/dev/null
+          evidence/product/authentication-service --version | grep -F '0.4.46' >/dev/null
           sha256sum "$artifact" > evidence/authentication-service.tar.xz.sha256
           docker run --rm --entrypoint go \
             --volume "$PWD:/work:ro" \
             "$DAPPER_IMAGE" \
             version -m /work/evidence/product/authentication-service \
             > evidence/product-go-version.txt
+
+      - name: Verify the exact product has no OpenPGP import path
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint go -e GOCACHE=/tmp/go-cache \
+            -v "$PWD:/work:ro" -w /work "$DAPPER_IMAGE" \
+            list -mod=vendor -deps ./... > evidence/product-package-graph.txt
+          test -s evidence/product-package-graph.txt
+          if grep -Eq '^golang.org/x/crypto/openpgp(/|$)' evidence/product-package-graph.txt; then
+            echo "OpenPGP VEX is no longer valid" >&2
+            exit 1
+          fi
+          grep -F 'pkg:golang/golang.org/x/crypto@v0.57.0' security/openvex.json
 
       - name: Record resolved build inputs
         shell: bash
@@ -142,7 +156,7 @@ jobs:
             -v "$trivy_cache:/root/.cache/trivy" \
             "$TRIVY_IMAGE" rootfs \
             --offline-scan --scanners vuln,secret \
-            --vex /security/openvex.json --show-suppressed \
+            --vex /security/openvex.json \
             --format json --output /evidence/product-security-applicable.json \
             /evidence/product
           docker run --rm \
@@ -221,6 +235,13 @@ jobs:
 
           rm -rf "$source_tree"
           trap - EXIT
+
+      - name: Enforce full product vulnerability policy
+        run: |
+          python3 .github/scripts/test_runtime_vulnerability_policy.py
+          python3 .github/scripts/enforce-runtime-vulnerabilities.py \
+            evidence/product-security-applicable.json .github/runtime-unfixed.json \
+            --repository PastureStack/authentication-service
 
       - name: Summarize security evidence
         if: always()

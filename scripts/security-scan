@@ -56,15 +56,19 @@ common_product_args=(
 
 "$TRIVY_BIN" filesystem \
     "${common_source_args[@]}" \
-    --show-suppressed \
     --scanners vuln,misconfig,secret,license \
     --format json \
     --output "$SECURITY_OUTPUT_DIR/source-security-scan.json" \
     "$source_root"
 
 "$TRIVY_BIN" rootfs \
+    --cache-dir "$TRIVY_CACHE_DIR" \
+    --scanners vuln,secret --list-all-pkgs --format json \
+    --output "$SECURITY_OUTPUT_DIR/product-security-raw.json" \
+    "$scan_root/product"
+
+"$TRIVY_BIN" rootfs \
     "${common_product_args[@]}" \
-    --show-suppressed \
     --scanners vuln,secret,license \
     --format json \
     --output "$SECURITY_OUTPUT_DIR/product-security-scan.json" \
@@ -105,12 +109,17 @@ common_product_args=(
     --output "$SECURITY_OUTPUT_DIR/product.cdx.json" \
     "$scan_root/product"
 
+python3 .github/scripts/enforce-runtime-vulnerabilities.py \
+    "$SECURITY_OUTPUT_DIR/product-security-scan.json" .github/runtime-unfixed.json \
+    --repository PastureStack/authentication-service
+
 cp security/openvex.json "$SECURITY_OUTPUT_DIR/openvex.json"
 (
     cd "$SECURITY_OUTPUT_DIR"
     sha256sum \
         source-security-scan.json \
         product-security-scan.json \
+        product-security-raw.json \
         source.cdx.json \
         product.cdx.json \
         openvex.json \

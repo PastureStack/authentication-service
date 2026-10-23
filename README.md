@@ -129,3 +129,14 @@ The inherited project remains licensed under [Apache License 2.0](LICENSE). Copy
 ## October 2026 security maintenance
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
+
+## Full-severity security rebuild candidate
+
+The next compatible release candidate is **v0.4.46** (not yet published). It keeps
+the existing API and minimum Go language version while updating the compiler to
+Go 1.27.3, `golang.org/x/net` to v0.60.0 and `golang.org/x/crypto` to v0.57.0.
+The release gate now rejects every officially fixable vulnerability, regardless
+of severity, and any unreviewed low/medium or unknown finding. The sole OpenPGP
+VEX is bound to the exact module version and a recorded dependency graph proving
+that the vulnerable package is not imported. Previously published v0.4.45 is
+retained for provenance; it is not the fully patched candidate.
