@@ -239,9 +239,7 @@ jobs:
       - name: Enforce full product vulnerability policy
         run: |
           python3 .github/scripts/test_runtime_vulnerability_policy.py
-          python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-            evidence/product-security-applicable.json .github/runtime-unfixed.json \
-            --repository PastureStack/authentication-service
+          python3 .github/scripts/enforce-runtime-vulnerabilities.py --repository PastureStack/authentication-service < evidence/product-security-applicable.json
 
       - name: Summarize security evidence
         if: always()

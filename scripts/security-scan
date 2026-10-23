@@ -109,9 +109,7 @@ common_product_args=(
     --output "$SECURITY_OUTPUT_DIR/product.cdx.json" \
     "$scan_root/product"
 
-python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-    "$SECURITY_OUTPUT_DIR/product-security-scan.json" .github/runtime-unfixed.json \
-    --repository PastureStack/authentication-service
+python3 .github/scripts/enforce-runtime-vulnerabilities.py --repository PastureStack/authentication-service < "$SECURITY_OUTPUT_DIR/product-security-scan.json"
 
 cp security/openvex.json "$SECURITY_OUTPUT_DIR/openvex.json"
 (

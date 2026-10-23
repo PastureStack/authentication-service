@@ -1,6 +1,7 @@
 """Enforce release findings; only exact, reviewed unfixed low/medium entries may pass."""
 import argparse
 import json
+import sys
 from pathlib import Path
 
 
@@ -47,12 +48,10 @@ def violations(report, ledger, repository):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("report")
-    parser.add_argument("ledger")
     parser.add_argument("--repository", required=True)
     args = parser.parse_args()
-    failures = violations(json.loads(Path(args.report).read_text()),
-                          json.loads(Path(args.ledger).read_text()), args.repository)
+    failures = violations(json.load(sys.stdin),
+                          json.loads((Path(__file__).resolve().parents[1] / "runtime-unfixed.json").read_text(encoding="utf-8")), args.repository)
     if failures:
         raise SystemExit("Release vulnerability policy failed:\n" + "\n".join(failures))
     print("RELEASE_VULNERABILITY_POLICY_OK")
