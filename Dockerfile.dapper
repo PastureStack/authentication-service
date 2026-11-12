@@ -10,9 +10,9 @@ ADD --checksum=sha256:8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3
 ADD --checksum=sha256:7c0b37592f83a629cc22f0c98effa176da9edbd6d77b3f38184a9d0ddc5e0266 https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4t64_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl4t64.deb
 
 ARG DAPPER_HOST_ARCH=amd64
-ARG GO_VERSION=1.27.3
-ARG GO_LINUX_AMD64_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
-ARG GO_LINUX_ARM64_SHA256=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
+ARG GO_VERSION=1.27.4
+ARG GO_LINUX_AMD64_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+ARG GO_LINUX_ARM64_SHA256=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOST_ARCH=${DAPPER_HOST_ARCH} ARCH=${DAPPER_HOST_ARCH}
@@ -36,7 +36,7 @@ RUN set -eux; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
         "${UBUNTU_APT_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-snapshot.sources; \
     printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\nAcquire::https::Verify-Peer "true";\nAcquire::https::Verify-Host "true";\nAcquire::AllowInsecureRepositories "false";\nAPT::Get::AllowUnauthenticated "false";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
-    apt-get update; \
+    apt-get update --error-on=any; \
     prepare-snapshot-packages install -y --no-install-recommends \
         bash="${UBUNTU_APT_BASH_VERSION}" \
         ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_BOOTSTRAP_VERSION}" \
@@ -62,7 +62,7 @@ RUN set -eux; \
         xz-utils="${UBUNTU_APT_XZ_UTILS_VERSION}"; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute-updates resolute-security\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' \
         "${UBUNTU_APT_SECURITY_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-security.sources; \
-    apt-get update; \
+    apt-get update --error-on=any; \
     prepare-snapshot-packages install -y --no-install-recommends \
         linux-libc-dev="${UBUNTU_APT_LINUX_LIBC_DEV_VERSION}" \
         libssl3t64="${UBUNTU_APT_OPENSSL_VERSION}" \

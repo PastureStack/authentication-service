@@ -2,7 +2,7 @@ module github.com/rancher/go-rancher
 
 go 1.26.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/gorilla/context v1.1.2
