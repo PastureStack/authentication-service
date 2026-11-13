@@ -67,18 +67,18 @@ def builder_violations(report, ledger, repository, header_boundary, header_ledge
     if any(not result.get("Packages") for result in binaries.values()):
         raise ValueError("incomplete Go binary package analysis")
     has_headers = any(f.get("PkgName") == "linux-libc-dev" for r in results for f in (r.get("Vulnerabilities") or []))
-    if has_headers and header_boundary != {"package": "linux-libc-dev", "version": "7.0.0-38.38",
+    if has_headers and header_boundary != {"package": "linux-libc-dev", "version": "7.0.0-43.43",
                                            "kernel_images": False, "kernel_modules": False}:
         raise ValueError("missing exact installed-header boundary proof")
     if header_ledger.get("repository") != repository:
         raise ValueError("header review repository mismatch")
     if (header_ledger.get("package") != "linux-libc-dev"
-            or header_ledger.get("version") != "7.0.0-38.38"
-            or header_ledger.get("purl") != "pkg:deb/ubuntu/linux-libc-dev@7.0.0-38.38?arch=amd64&distro=ubuntu-26.04"):
+            or header_ledger.get("version") != "7.0.0-43.43"
+            or header_ledger.get("purl") != "pkg:deb/ubuntu/linux-libc-dev@7.0.0-43.43?arch=amd64&distro=ubuntu-26.04"):
         raise ValueError("changed header review boundary")
     header_keys = {(identifier, header_ledger["package"], header_ledger["version"], header_ledger["purl"])
                    for identifier in header_ledger.get("ids", [])}
-    expected_purl = "pkg:deb/ubuntu/linux-libc-dev@7.0.0-38.38?arch=amd64&distro=ubuntu-26.04"
+    expected_purl = "pkg:deb/ubuntu/linux-libc-dev@7.0.0-43.43?arch=amd64&distro=ubuntu-26.04"
     openpgp_absent = False
     if package_graphs:
         if repository not in ("PastureStack/kubernetes-authentication-bridge", "PastureStack/ecr-credential-sync"):
@@ -104,7 +104,7 @@ def builder_violations(report, ledger, repository, header_boundary, header_ledge
                    finding.get("InstalledVersion"),
                    (finding.get("PkgIdentifier") or {}).get("PURL", ""))
             is_header = (key in header_keys and key[1] == "linux-libc-dev"
-                         and key[2] == "7.0.0-38.38" and key[3] == expected_purl)
+                         and key[2] == "7.0.0-43.43" and key[3] == expected_purl)
             unfixed = not str(finding.get("FixedVersion") or "").strip()
             if is_header and unfixed:
                 continue
