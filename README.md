@@ -10,12 +10,12 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The current compatibility release is [v0.4.46](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.46).
+The current compatibility release is [v0.4.47](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.47).
 Its original producer and archive checksum are recorded under
 [Full-severity security release](#full-severity-security-release).
 
 Previous maintenance release [`v0.4.45`](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.45)
-rebuilds the unchanged runtime with Go 1.27.3.
+rebuilds the unchanged runtime with Go 1.27.4.
 Its disposable AMD64 release builder pins the official curl 8.18.0-1ubuntu2.8
 payload hashes, plus OpenSSL 3.5.5-1ubuntu3.7 from the signed frozen Ubuntu snapshot.
 Linux user-space headers are pinned to 7.0.0-38.38; exact reviewed header-only
@@ -90,14 +90,14 @@ make build
 make package
 ```
 
-The compiler archives are checksum-pinned Go 1.27.3 for Linux/amd64 and
+The compiler archives are checksum-pinned Go 1.27.4 for Linux/amd64 and
 Linux/arm64. This release's artifact qualification covers Linux/amd64 only,
 not an ARM64 binary build. The compiler update includes the crypto/x509 fix
 for CVE-2026-111943; authentication behavior is unchanged.
 
-Set `VERSION_OVERRIDE=v0.4.46` for the reviewed identity-security compatibility
+Set `VERSION_OVERRIDE=v0.4.47` for the reviewed identity-security compatibility
 release. Packaging produces the deterministic, versioned
-`authentication-service-0.4.46-linux-amd64.tar.xz` asset. The manually
+`authentication-service-0.4.47-linux-amd64.tar.xz` asset. The manually
 dispatched release workflow runs the full test and validation suite twice,
 requires byte-identical packages, verifies a fixed and attested security
 scanner, publishes CycloneDX SBOMs and scan evidence, and publishes the
@@ -132,18 +132,18 @@ The inherited project remains licensed under [Apache License 2.0](LICENSE). Copy
 
 ## October 2026 security maintenance
 
-Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
+Maintained Go builds select the patched Go 1.27.4 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
 
 ## Full-severity security release
 
-The compatible security release [v0.4.46](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.46) is published. It keeps
+The compatible security release [v0.4.47](https://github.com/PastureStack/authentication-service/releases/tag/v0.4.47) is published. It uses Go 1.27.4 and current x/net and x/crypto releases. It keeps
 the existing API and minimum Go language version while updating the compiler to
-Go 1.27.3, `golang.org/x/net` to v0.60.0 and `golang.org/x/crypto` to v0.57.0.
+Go 1.27.4, `golang.org/x/net` to v0.60.0 and `golang.org/x/crypto` to v0.57.0.
 The release gate now rejects every officially fixable vulnerability, regardless
 of severity, and any unreviewed low/medium or unknown finding. The sole OpenPGP
 VEX is bound to the exact module version and a recorded dependency graph proving
 that the vulnerable package is not imported. Previously published v0.4.45 is
-retained for provenance and is superseded by v0.4.46.
+retained for provenance and is superseded by v0.4.47.
 
 The published archive was built from producer
 `35333ee3e40d9de032c10307ee80113c980be00a`, with SHA256
