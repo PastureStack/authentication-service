@@ -1,11 +1,11 @@
 {
   "repository": "PastureStack/authentication-service",
   "package": "linux-libc-dev",
-  "version": "7.0.0-38.38",
-  "purl": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-38.38?arch=amd64&distro=ubuntu-26.04",
+  "version": "7.0.0-43.43",
+  "purl": "pkg:deb/ubuntu/linux-libc-dev@7.0.0-43.43?arch=amd64&distro=ubuntu-26.04",
   "justification": "vulnerable_code_not_present",
-  "reason": "Exact user-space API headers only. The gate checks actual package payload paths and absence of kernel images/modules. Any fixed or new finding is rejected before this scope can apply.",
-  "checkedAt": "2026-10-23",
+  "reason": "The updated package must contain only user-space kernel headers and package documentation. The installed path and kernel-runtime checks remain mandatory. The existing advisory IDs and severity ceilings are unchanged. Fixed and new findings fail closed.",
+  "checkedAt": "2026-11-13",
   "ids": [
     "CVE-2013-7445",
     "CVE-2015-7837",
@@ -3158,5 +3158,11 @@
     "CVE-2026-98868",
     "CVE-2026-98869",
     "CVE-2026-99999"
-  ]
+  ],
+  "officialCurrentPackage": {
+    "version": "7.0.0-43.43",
+    "architecture": "amd64",
+    "sha256": "3a3adc14e3332fc017b1d0e4e39655298a2a977d51db6e80de533ac60137b07f",
+    "uri": "https://security.ubuntu.com/ubuntu/pool/main/l/linux/linux-libc-dev_7.0.0-43.43_amd64.deb"
+  }
 }

@@ -6,7 +6,7 @@ if ! docker run --rm --entrypoint sh "$1" -ec 'dpkg-query -W -f="\${Status}" lin
   exit 0
 fi
 docker run --rm --entrypoint sh "$1" -ec '
-  test "$(dpkg-query -W -f="\${Version}" linux-libc-dev)" = 7.0.0-38.38
+  test "$(dpkg-query -W -f="\${Version}" linux-libc-dev)" = 7.0.0-43.43
   if dpkg-query -W -f="\${db:Status-Abbrev} \${binary:Package}\\n" |
       awk "\$1 == \"ii\" {print \$2}" | grep -Eq "^linux-(image|modules)([-:]|$)"; then
     echo "Unexpected kernel runtime package" >&2; exit 1
@@ -25,4 +25,4 @@ docker run --rm --entrypoint sh "$1" -ec '
     fi
   done
 '
-printf '%s\n' '{"package":"linux-libc-dev","version":"7.0.0-38.38","kernel_images":false,"kernel_modules":false}'
+printf '%s\n' '{"package":"linux-libc-dev","version":"7.0.0-43.43","kernel_images":false,"kernel_modules":false}'
